@@ -1,0 +1,49 @@
+[project]
+name = "do"
+version = "0.1.0"
+description = "Natural language to shell commands -- translates verbatim, never advises"
+requires-python = ">=3.11"
+
+# Nothing at runtime. The model is served by an external llama-server child
+# process, so no Python inference stack is needed; the socket protocol, the
+# HTTP client, the cache, and the TTY handling are all stdlib (json, socket,
+# urllib, sqlite3, tomllib, termios, readline). Keeping this list empty is
+# what lets the daemon sit at ~1 GB RSS with the model loaded and near zero
+# without it.
+dependencies = []
+
+[project.optional-dependencies]
+# A real bash AST for parse.py. Without it the parser falls back to a shlex
+# tokenizer, which handles the common shapes; bashlex is what makes command
+# substitution and nested constructs visible rather than guessed at.
+parse = ["bashlex>=0.18"]
+
+[project.scripts]
+Do = "do.cli:main"
+dod = "do.daemon:main"
+
+[dependency-groups]
+# uv installs these by default for local work but they never reach a wheel.
+# PyYAML is only for tests/golden/commands.yaml.
+dev = [
+    "pytest>=8.0",
+    "pyyaml>=6.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+# Explicit because the distribution name is normalized to "do" and the shell
+# integration snippets under do/shellinit/ must ship with the package --
+# `Do --shell-init zsh` reads them at runtime.
+packages = ["do"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    # test_golden.py needs a running daemon and a loaded model, so it is opt-in
+    # (`-m slow`). The safety and parse suites are the gate that always runs.
+    "slow: requires a running daemon and the model file",
+]
