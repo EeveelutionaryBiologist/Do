@@ -61,7 +61,7 @@ class ParsedCommand:
             if parsed.unresolved:
         evaluates correctly.
         """
-        frozenset().union(*(stage.unresolved for stage in self.stages))
+        return frozenset().union(*(stage.unresolved for stage in self.stages))
 
 
 def parse(command: str) -> ParsedCommand:
