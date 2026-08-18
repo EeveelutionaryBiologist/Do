@@ -7,7 +7,7 @@ import sys
 from do.config import Config
 from do.protocol import encode, decode, read_line
 from do.safety import Tier
-from do.render import color_response, denial
+from do.render import color_response, denial, blast_line
 
 
 EXIT_OK           = 0
@@ -22,6 +22,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('message', default="", nargs='?')
     parser.add_argument('--status', action='store_true')
     parser.add_argument('--dry-run', action='store_true')
+    parser.add_argument("--yolo", action='store_true')
+    parser.add_argument("--no-color", action='store_true')
 
     return parser
 
@@ -75,7 +77,10 @@ def print_status(response: dict) -> int:
     return EXIT_OK
 
 
-def print_translation(response: dict) -> int:
+def print_translation(response: dict, args) -> int:
+    color = not args.no_color
+    yolo = args.yolo
+
     if not response.get("ok", False):
         print(response.get("error", "translation failed"), file=sys.stderr)
         return EXIT_NO_DAEMON
@@ -85,18 +90,23 @@ def print_translation(response: dict) -> int:
         print(reasons[0])
         return EXIT_OK
 
-    if response["tier"] == Tier.DENY.value:
-        print(denial(reasons=response["reasons"], color=True))
-        return EXIT_DENIED
-    
+    if response["tier"] == Tier.DENY.value: 
+        if not yolo:
+            print(denial(response["command"], reasons=response["reasons"], color=color, yolo=False),
+                  file=sys.stderr)
+            print(blast_line(response["blast_radius"], color), file=sys.stderr)
+            return EXIT_DENIED
+        else:
+            print(denial(response["command"], reasons=response["reasons"], color=color, yolo=True))
     else:
         print(color_response(response))
+
+    print(blast_line(response["blast_radius"], color))
 
     return EXIT_OK
 
 
 def main(argv=None) -> int:
-
     config = Config()
     args = build_parser().parse_args(argv)
 
@@ -108,11 +118,13 @@ def main(argv=None) -> int:
         print(exc, file=sys.stderr)
         return EXIT_NO_DAEMON
 
+    # print(response)
+
     if args.status:
         return print_status(response)
 
     if args.dry_run or not sys.stdout.isatty():
-        return print_translation(response)
+        return print_translation(response, args)
     else:
         # Interactive is not yet implemented!
         raise NotImplementedError(

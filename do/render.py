@@ -13,10 +13,21 @@ def supports_color(stream) -> bool:
     """isatty AND not NO_COLOR AND TERM != 'dumb'."""
 
 def blast_line(blast: dict | None, color: bool) -> str:
-    pass
+    if not blast:
+        return ""
+
+    outlines = "Blast radius:"
+
+    for (k, v) in blast.items():
+        if color:
+            outlines += f"\n{bcolors.WARNING}{k}:\t{v}{bcolors.ENDC}"
+        else:
+            outlines += f"\n{k}:\t{v}"
+
+    return outlines
 
 def key_hints(tier: str, color: bool) -> str:
-    return "Accept: [Enter], Back: [Back]"
+    return "[Enter] run   [e] edit   [q] cancel"
 
 def ok_command(command: str, color: bool) -> str:
     if color:
@@ -32,21 +43,26 @@ def warning(command: str, reasons: Sequence[str], color: bool) -> str:
     else: 
         return f"{command}\n{reason_str}"
 
-def denial(reasons: Sequence[str], color: bool) -> str:
+def denial(command: str, reasons: Sequence[str], color: bool, yolo: bool=False) -> str:
     reason_str = "\n".join(reasons)
 
-    # TODO: We could add an opt-in YOLO mode, where denied commands are surfaced in Red...
-    if color:
-        return f"{bcolors.DENY}[DENIED]{bcolors.ENDC}\n{reason_str}"
-    else: 
-        return f"[DENIED]{reason_str}"
+    if not yolo:
+        if color:
+            return f"{bcolors.DENY}[DENIED]{bcolors.ENDC}\n{reason_str}"
+        else: 
+            return f"[DENIED]{reason_str}"
+    else:
+        if color:
+            return f"{bcolors.DENY}{command}{bcolors.ENDC}\n{reason_str}"
+        else: 
+            return f"{command}{reason_str}"
 
 def color_response(response: dict):
     command = response["command"]
 
     if response["tier"] == "deny":
         return denial(response["reasons"], True)
-    elif response["tier"] == "warning":
+    elif response["tier"] == "warn":
         return warning(command, response["reasons"], True)
     else:
         return ok_command(command, True)
