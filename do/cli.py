@@ -6,6 +6,7 @@ import sys
 
 from do.config import Config
 from do.protocol import encode, decode, read_line
+from do.safety import Tier
 
 
 EXIT_OK           = 0
@@ -19,6 +20,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog='Do')
     parser.add_argument('message', default="", nargs='?')
     parser.add_argument('--status', action='store_true')
+    parser.add_argument('--dry-run', action='store_true')
 
     return parser
 
@@ -31,10 +33,9 @@ def build_payload(message: str) -> dict:
         "shell": "zsh",
     }
 
-
-def call(config: Config, message: dict, timeout: float = 65.0) -> dict:
+def call(config: Config, payload: dict, timeout: float = 65.0) -> dict:
     """One request, one response. Raises ConnectionError with a
-    human message if the daemon is not listening."""
+    if the daemon is not listening."""
     socket_path = str(config.socket_path)
 
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
@@ -47,9 +48,11 @@ def call(config: Config, message: dict, timeout: float = 65.0) -> dict:
                 f"Start it with `dod --foreground`."
             ) from exc
 
-        sock.sendall(encode(message))
+        sock.sendall(encode(payload))
         sock.shutdown(socket.SHUT_WR)
-        return decode(read_line(sock))
+        response = decode(read_line(sock))
+
+    return response
 
 
 def print_status(response: dict) -> int:
@@ -81,25 +84,37 @@ def print_translation(response: dict) -> int:
         print(reasons[0])
         return EXIT_OK
 
+    if response["tier"] == Tier.DENY.value:
+        print("Destructive command. Denied.")
+        return EXIT_DENIED
+
     print(response["command"])
     return EXIT_OK
 
 
 def main(argv=None) -> int:
+
     config = Config()
     args = build_parser().parse_args(argv)
 
-    message = {"op": "status"} if args.status else build_payload(args.message)
+    payload = {"op": "status"} if args.status else build_payload(args.message)
 
     try:
-        response = call(config, message)
+        response = call(config, payload)
     except ConnectionError as exc:
         print(exc, file=sys.stderr)
         return EXIT_NO_DAEMON
 
     if args.status:
         return print_status(response)
-    return print_translation(response)
+
+    if args.dry_run or not sys.stdout.isatty():
+        return print_translation(response)
+    else:
+        # Interactive is not yet implemented!
+        raise NotImplementedError(
+            "Interactive flow is not yet implemented"
+        )
 
 
 if __name__ == "__main__":
