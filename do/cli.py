@@ -7,6 +7,7 @@ import sys
 from do.config import Config
 from do.protocol import encode, decode, read_line
 from do.safety import Tier
+from do.render import color_response, denial
 
 
 EXIT_OK           = 0
@@ -85,10 +86,12 @@ def print_translation(response: dict) -> int:
         return EXIT_OK
 
     if response["tier"] == Tier.DENY.value:
-        print("Destructive command. Denied.")
+        print(denial(reasons=response["reasons"], color=True))
         return EXIT_DENIED
+    
+    else:
+        print(color_response(response))
 
-    print(response["command"])
     return EXIT_OK
 
 
