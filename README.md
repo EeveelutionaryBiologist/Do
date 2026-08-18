@@ -1,2 +1,2 @@
 # Do
-Natural Language shell script parser
+Natural Language shell script parser (WIP)
