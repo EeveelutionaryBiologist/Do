@@ -61,14 +61,16 @@ class Daemon:
 
     # -- verdict ---------------------------------------------------------
 
-    def _analyze(self, command: str) -> dict:
+    def _analyze(self, command: str, cwd: str = "") -> dict:
         """Tier a command, or say plainly that it cannot."""
         if self._analyze_fn is None:
             return {"tier": "warn",
                     "reasons": ["safety layer not implemented (do/safety.py)"],
                     "blast_radius": None}
 
-        verdict = self._analyze_fn(command)
+        # cwd matters: warn.recursive_delete_outside_cwd is the rule that tells
+        # `rm -rf ./build` from `rm -rf /tmp/build`, and it cannot without it.
+        verdict = self._analyze_fn(command, cwd=cwd or None)
 
         if isinstance(verdict, dict):
             tier = verdict.get("tier", "warn")
@@ -144,7 +146,7 @@ class Daemon:
                     "blast_radius": None, "cached": cached,
                     "latency_ms": latency_ms}
 
-        verdict = self._analyze(command)
+        verdict = self._analyze(command, cwd)
         request_id = self._record(text, cwd, shell, command, verdict,
                                   latency_ms, cached)
 
