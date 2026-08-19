@@ -26,7 +26,7 @@ def blast_line(blast: dict | None, color: bool) -> str:
 
     return outlines
 
-def key_hints(tier: str, color: bool) -> str:
+def key_hints(color: bool=False) -> str:
     return "[Enter] run   [e] edit   [q] cancel"
 
 def ok_command(command: str, color: bool) -> str:

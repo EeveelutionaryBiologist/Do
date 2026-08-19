@@ -3,11 +3,13 @@ import argparse
 import socket
 import os
 import sys
+import termios
+import tty
 
 from do.config import Config
 from do.protocol import encode, decode, read_line
 from do.safety import Tier
-from do.render import color_response, denial, blast_line
+from do.render import color_response, denial, blast_line, key_hints
 
 
 EXIT_OK           = 0
@@ -15,6 +17,52 @@ EXIT_CANCELLED    = 1
 EXIT_DENIED       = 2
 EXIT_NO_DAEMON    = 3
 EXIT_INTERRUPTED  = 130
+
+
+def listen_for_key() -> str:
+    """One keypress, no Enter. Restores the terminal on every path."""
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    try:
+        tty.setcbreak(fd)
+        ch = sys.stdin.read(1)
+        # Handle special case if user hits Enter (returns carriage return or newline)
+        if ch in ('\r', '\n'):
+            return 'ENTER'
+        return ch
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
+
+def prompt_for_action(tier: str, yolo: bool= False) -> bool:
+    """
+    -> 'run' | 'edit' | 'cancel'
+    On return 'True', the code is passed to Execution
+    """
+    if tier == "deny" and not yolo:
+        return False
+
+    print(key_hints())
+
+    while True:
+        try:
+            key = listen_for_key()
+        except KeyboardInterrupt:
+            print("\nInterrupted.", file=sys.stderr)
+            sys.exit(EXIT_INTERRUPTED)
+
+        match key:
+            case "ENTER": 
+                # Code execution goes here
+                return True
+            case "e":
+                # TODO: Cmd editing goes here
+                raise NotImplementedError("Editing is not yet build!")
+            case "q":
+                print("Aborted.")
+                return False
+            case _:
+                continue
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -103,6 +151,12 @@ def print_translation(response: dict, args) -> int:
 
     print(blast_line(response["blast_radius"], color))
 
+    if args.dry_run:
+        return EXIT_OK
+         
+    if prompt_for_action(response["tier"], yolo):
+        print("Executing now.") # <-- Placeholder
+
     return EXIT_OK
 
 
@@ -123,14 +177,8 @@ def main(argv=None) -> int:
     if args.status:
         return print_status(response)
 
-    if args.dry_run or not sys.stdout.isatty():
+    if sys.stdout.isatty(): 
         return print_translation(response, args)
-    else:
-        # Interactive is not yet implemented!
-        raise NotImplementedError(
-            "Interactive flow is not yet implemented"
-        )
-
 
 if __name__ == "__main__":
     sys.exit(main())
