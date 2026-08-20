@@ -16,6 +16,7 @@ except ImportError:
 
 
 _REDIRECT_OPS = {">", ">>", "2>", "<"}
+_STAGE_SEPARATORS = {"|", "&&", "||", ";", ";;", "&"}
 
 _WRAPPER_ARG_OPTS = {
     "sudo":  {"-u", "-g", "-p", "-C", "-U", "-r", "-t", "-T"},
@@ -203,11 +204,14 @@ def _parse_shlex(command: str) -> ParsedCommand:
     groups: list[list[str]] = [[]]
 
     for tok in tokens:
-        if tok == "|":
+        if tok in _STAGE_SEPARATORS:
             groups.append([])
         else:
             groups[-1].append(tok)
 
+    # A backslash-escaped ";" in "find ... -exec rm {} \;" unescapes to the
+    # same bare ";" token as a real separator -- shlex does not keep enough
+    # state past tokenization to tell them apart. 
     stages = tuple(_stage_from_tokens(g) for g in groups if g)
 
     return ParsedCommand(
