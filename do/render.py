@@ -35,6 +35,9 @@ def ok_command(command: str, color: bool) -> str:
     else: 
         return f"{command}"
 
+def render_yellow(text: str) -> str:
+    return f"{bcolors.WARNING}{text}{bcolors.ENDC}"
+
 def warning(command: str, reasons: Sequence[str], color: bool) -> str:
     reason_str = "\n".join(reasons)
 

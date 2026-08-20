@@ -5,6 +5,7 @@ import os
 import sys
 import termios
 import tty
+from pathlib import Path
 
 try:
     import gnureadline as readline
@@ -12,10 +13,21 @@ except ImportError:
     import readline
 
 from do.config import Config
+from do import parse as parse_mod
 from do.protocol import encode, decode, read_line
 from do.safety import Tier
-from do.render import color_response, denial, blast_line, key_hints
+from do.render import color_response, denial, blast_line, key_hints, render_yellow
 from do.execution import execute
+
+
+STATE_ONLY_HEADS = frozenset({"cd", "export", "source", "alias", "umask"})
+
+
+def is_state_only(command: str) -> bool:
+    """cd, export, source, alias, umask -- commands that change shell state
+    and therefore do nothing from a child process."""
+    stages = parse_mod.parse(command).stages
+    return bool(stages) and stages[0].head in STATE_ONLY_HEADS
 
 
 EXIT_OK           = 0
@@ -83,6 +95,16 @@ def edit_command(command: str) -> str:
     return edited_cmd
 
 
+SHELLINIT_DIR = Path(__file__).resolve().parent / "shellinit"
+
+
+def shell_init_script(shell: str) -> str:
+    """The snippet for `Do --shell-init <shell>` -- read verbatim from
+    do/shellinit/, not built inline, so it stays six lines of real zsh
+    rather than a Python string half the reader has to mentally unescape."""
+    return (SHELLINIT_DIR / f"{shell}.sh").read_text()
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog='Do')
     parser.add_argument('message', default="", nargs='?')
@@ -90,6 +112,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('--dry-run', action='store_true')
     parser.add_argument("--yolo", action='store_true')
     parser.add_argument("--no-color", action='store_true')
+    parser.add_argument("--shell-init", choices=["zsh"], default=None,
+                        help="print a shell snippet that turns Do into a "
+                             "ZLE widget instead of a subprocess")
 
     return parser
 
@@ -150,6 +175,26 @@ def print_status(response: dict) -> int:
     return EXIT_OK
 
 
+def print_translation_noninteractive(response: dict, args) -> int:
+    """Non-TTY output"""
+    if not response.get("ok", False):
+        print(response.get("error", "translation failed"), file=sys.stderr)
+        return EXIT_NO_DAEMON
+
+    if not response["command"]:
+        reasons = response.get("reasons") or ["no shell command expresses that request"]
+        print(reasons[0], file=sys.stderr)
+        return EXIT_OK
+
+    if response["tier"] == Tier.DENY.value and not args.yolo:
+        for reason in response["reasons"]:
+            print(reason, file=sys.stderr)
+        return EXIT_DENIED
+
+    print(response["command"])
+    return EXIT_OK
+
+
 def print_translation(response: dict, args, config: Config) -> int:
     color = not args.no_color
     yolo = args.yolo
@@ -164,6 +209,18 @@ def print_translation(response: dict, args, config: Config) -> int:
         return EXIT_OK
 
     while True:
+        if is_state_only(response["command"]):
+            if color:
+                print(render_yellow(response["command"]))
+            else:
+                print(f"{response['command']}")
+            if not args.dry_run:
+                print(f"NOTE: Cannot be executed in-line here, as it would only changes this shell's state "
+                    f"(cwd, an env var, ...); a child process can't make that stick to the parent "
+                    f"once it exits. Run `Do --shell-init zsh` once to wire up a "
+                    f"shell function that can.", file=sys.stderr)
+            return EXIT_CANCELLED
+
         if response["tier"] == Tier.DENY.value:
             if not yolo:
                 print(denial(response["command"], reasons=response["reasons"], color=color, yolo=False),
@@ -214,9 +271,13 @@ def print_translation(response: dict, args, config: Config) -> int:
 
 
 def main(argv=None) -> int:
-    config = Config()
     args = build_parser().parse_args(argv)
 
+    if args.shell_init:
+        sys.stdout.write(shell_init_script(args.shell_init))
+        return EXIT_OK
+
+    config = Config()
     payload = {"op": "status"} if args.status else build_payload(args.message)
 
     try:
@@ -232,6 +293,8 @@ def main(argv=None) -> int:
 
     if sys.stdout.isatty():
         return print_translation(response, args, config)
+
+    return print_translation_noninteractive(response, args)
 
 if __name__ == "__main__":
     sys.exit(main())
