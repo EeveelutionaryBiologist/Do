@@ -92,6 +92,8 @@ class Daemon:
 
         if op == "translate":
             return self._translate(request)
+        if op == "analyze":
+            return self._analyze_op(request)
         if op == "feedback":
             return self._feedback(request)
         if op == "status":
@@ -154,6 +156,17 @@ class Daemon:
                 "tier": verdict["tier"], "reasons": verdict["reasons"],
                 "blast_radius": verdict["blast_radius"],
                 "cached": cached, "latency_ms": latency_ms}
+
+    def _analyze_op(self, request: dict) -> dict:
+        """Tier a command without generating one -- used to re-check an edit,
+        so the client never has to re-`translate` a prompt that didn't change."""
+        command = (request.get("command") or "").strip()
+        if not command:
+            return protocol.error("empty command", "bad_request")
+
+        verdict = self._analyze(command, request.get("cwd") or "")
+        return {"ok": True, "command": command, "tier": verdict["tier"],
+                "reasons": verdict["reasons"], "blast_radius": verdict["blast_radius"]}
 
     def _record(self, text, cwd, shell, command, verdict, latency_ms, cached):
         if self._store is None:

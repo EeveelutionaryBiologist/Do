@@ -7,10 +7,6 @@ import termios
 import tty
 
 try:
-    # Real GNU readline, bundled -- see the dependency comment in
-    # pyproject.toml. The stdlib `readline` module is frequently backed by
-    # libedit instead (uv/pyenv-managed interpreters, macOS), which silently
-    # drops the insert_text+pre_input_hook prefill edit_command() relies on.
     import gnureadline as readline
 except ImportError:
     import readline
@@ -19,6 +15,7 @@ from do.config import Config
 from do.protocol import encode, decode, read_line
 from do.safety import Tier
 from do.render import color_response, denial, blast_line, key_hints
+from do.execution import execute
 
 
 EXIT_OK           = 0
@@ -178,7 +175,10 @@ def print_translation(response: dict, args, config: Config) -> int:
         else:
             print(color_response(response))
 
-        print(blast_line(response["blast_radius"], color))
+        blast_radius_ls = blast_line(response["blast_radius"], color)
+
+        if blast_radius_ls:
+            print(blast_radius_ls)
 
         if args.dry_run:
             return EXIT_OK
@@ -189,14 +189,14 @@ def print_translation(response: dict, args, config: Config) -> int:
             return EXIT_CANCELLED
 
         if action == "run":
-            print("Executing now.") # <-- Placeholder
+            print()
+            return_code = execute(command=response["command"])
             return EXIT_OK
 
         if action == "edit": 
             # re-tier before executing -- an edit can turn a
-            # WARN command into something that deserves DENY, and shipping the
-            # original verdict with a different command would be a lie.
-            edited = edit_command(response["command"])
+            # WARN command into something that deserves DENY
+            edited = edit_command(command=response["command"])
 
             try:
                 verdict = call(config, build_analyze_payload(edited))
@@ -209,8 +209,8 @@ def print_translation(response: dict, args, config: Config) -> int:
                     file=sys.stderr)
                 return EXIT_NO_DAEMON
 
-        response = {**response, "command": verdict["command"], "tier": verdict["tier"],
-                    "reasons": verdict["reasons"], "blast_radius": verdict["blast_radius"]}
+            response = {**response, "command": verdict["command"], "tier": verdict["tier"],
+                        "reasons": verdict["reasons"], "blast_radius": verdict["blast_radius"]}
 
 
 def main(argv=None) -> int:
