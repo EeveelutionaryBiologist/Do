@@ -6,6 +6,15 @@ import sys
 import termios
 import tty
 
+try:
+    # Real GNU readline, bundled -- see the dependency comment in
+    # pyproject.toml. The stdlib `readline` module is frequently backed by
+    # libedit instead (uv/pyenv-managed interpreters, macOS), which silently
+    # drops the insert_text+pre_input_hook prefill edit_command() relies on.
+    import gnureadline as readline
+except ImportError:
+    import readline
+
 from do.config import Config
 from do.protocol import encode, decode, read_line
 from do.safety import Tier
@@ -34,13 +43,10 @@ def listen_for_key() -> str:
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
 
-def prompt_for_action(tier: str, yolo: bool= False) -> bool:
-    """
-    -> 'run' | 'edit' | 'cancel'
-    On return 'True', the code is passed to Execution
-    """
+def prompt_for_action(tier: str, yolo: bool = False) -> str:
+    """-> 'run' | 'edit' | 'cancel'"""
     if tier == "deny" and not yolo:
-        return False
+        return "cancel"
 
     print(key_hints())
 
@@ -52,17 +58,32 @@ def prompt_for_action(tier: str, yolo: bool= False) -> bool:
             sys.exit(EXIT_INTERRUPTED)
 
         match key:
-            case "ENTER": 
-                # Code execution goes here
-                return True
+            case "ENTER":
+                return "run"
             case "e":
-                # TODO: Cmd editing goes here
-                raise NotImplementedError("Editing is not yet build!")
+                return "edit"
             case "q":
-                print("Aborted.")
-                return False
+                return "cancel"
             case _:
                 continue
+
+
+def edit_command(command: str) -> str:
+    """readline, pre-filled with `command`. Returns the edited line."""
+    def _prefill():
+        readline.insert_text(command)
+        readline.redisplay()
+
+    readline.set_pre_input_hook(_prefill)
+    try:
+        edited_cmd = input()
+    except KeyboardInterrupt:
+        print("\nInterrupted.", file=sys.stderr)
+        sys.exit(EXIT_INTERRUPTED)
+    finally:
+        readline.set_pre_input_hook()
+
+    return edited_cmd
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -82,6 +103,13 @@ def build_payload(message: str) -> dict:
         "prompt": message,
         "cwd": os.getcwd(),
         "shell": "zsh",
+    }
+
+def build_analyze_payload(command: str) -> dict:
+    return {
+        "op": "analyze",
+        "command": command,
+        "cwd": os.getcwd(),
     }
 
 def call(config: Config, payload: dict, timeout: float = 65.0) -> dict:
@@ -125,7 +153,7 @@ def print_status(response: dict) -> int:
     return EXIT_OK
 
 
-def print_translation(response: dict, args) -> int:
+def print_translation(response: dict, args, config: Config) -> int:
     color = not args.no_color
     yolo = args.yolo
 
@@ -138,26 +166,51 @@ def print_translation(response: dict, args) -> int:
         print(reasons[0])
         return EXIT_OK
 
-    if response["tier"] == Tier.DENY.value: 
-        if not yolo:
-            print(denial(response["command"], reasons=response["reasons"], color=color, yolo=False),
-                  file=sys.stderr)
-            print(blast_line(response["blast_radius"], color), file=sys.stderr)
-            return EXIT_DENIED
+    while True:
+        if response["tier"] == Tier.DENY.value:
+            if not yolo:
+                print(denial(response["command"], reasons=response["reasons"], color=color, yolo=False),
+                      file=sys.stderr)
+                print(blast_line(response["blast_radius"], color), file=sys.stderr)
+                return EXIT_DENIED
+            else:
+                print(denial(response["command"], reasons=response["reasons"], color=color, yolo=True))
         else:
-            print(denial(response["command"], reasons=response["reasons"], color=color, yolo=True))
-    else:
-        print(color_response(response))
+            print(color_response(response))
 
-    print(blast_line(response["blast_radius"], color))
+        print(blast_line(response["blast_radius"], color))
 
-    if args.dry_run:
-        return EXIT_OK
-         
-    if prompt_for_action(response["tier"], yolo):
-        print("Executing now.") # <-- Placeholder
+        if args.dry_run:
+            return EXIT_OK
 
-    return EXIT_OK
+        action = prompt_for_action(response["tier"], yolo)
+
+        if action == "cancel":
+            return EXIT_CANCELLED
+
+        if action == "run":
+            print("Executing now.") # <-- Placeholder
+            return EXIT_OK
+
+        if action == "edit": 
+            # re-tier before executing -- an edit can turn a
+            # WARN command into something that deserves DENY, and shipping the
+            # original verdict with a different command would be a lie.
+            edited = edit_command(response["command"])
+
+            try:
+                verdict = call(config, build_analyze_payload(edited))
+            except ConnectionError as exc:
+                print(exc, file=sys.stderr)
+                return EXIT_NO_DAEMON
+
+            if not verdict.get("ok", False):
+                print(verdict.get("error", "could not re-check the edited command"),
+                    file=sys.stderr)
+                return EXIT_NO_DAEMON
+
+        response = {**response, "command": verdict["command"], "tier": verdict["tier"],
+                    "reasons": verdict["reasons"], "blast_radius": verdict["blast_radius"]}
 
 
 def main(argv=None) -> int:
@@ -177,8 +230,8 @@ def main(argv=None) -> int:
     if args.status:
         return print_status(response)
 
-    if sys.stdout.isatty(): 
-        return print_translation(response, args)
+    if sys.stdout.isatty():
+        return print_translation(response, args, config)
 
 if __name__ == "__main__":
     sys.exit(main())
