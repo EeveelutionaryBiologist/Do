@@ -15,18 +15,18 @@ EXIT_INTERRUPTED = 130
 
 def listen_for_key() -> str:
     """One keypress, no Enter. Restores the terminal on every path."""
-    fd = sys.stdin.fileno()
-    old_settings = termios.tcgetattr(fd)
-    try:
-        tty.setcbreak(fd)
-        tty.setraw(sys.stdin.fileno())
-        ch = sys.stdin.read(1)
-        # Handle special case if user hits Enter (returns carriage return or newline)
-        if ch in ('\r', '\n'):
-            return 'ENTER'
-        return ch
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    with open("/dev/tty") as tty_in:
+        fd = tty_in.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setcbreak(fd)
+            ch = tty_in.read(1)
+            # Handle special case if user hits Enter (returns carriage return or newline)
+            if ch in ('\r', '\n'):
+                return 'ENTER'
+            return ch
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
 
 def prompt_for_action(tier: str, yolo: bool = False) -> str:
