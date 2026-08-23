@@ -16,11 +16,34 @@ from do.config import Config
 from do import parse as parse_mod
 from do.protocol import encode, decode, read_line
 from do.safety import Tier
-from do.render import color_response, denial, blast_line, key_hints, render_yellow
+from do.render import color_response, supports_color, denial, blast_line, key_hints, render_yellow
 from do.execution import execute
 
 
 STATE_ONLY_HEADS = frozenset({"cd", "export", "source", "alias", "umask"})
+
+SHELLINIT_DIR = Path(__file__).resolve().parent / "shellinit"
+
+EXIT_OK           = 0
+EXIT_CANCELLED    = 1
+EXIT_DENIED       = 2
+EXIT_NO_DAEMON    = 3
+EXIT_INTERRUPTED  = 130
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog='Do')
+    parser.add_argument('message', default="", nargs='?')
+    parser.add_argument('--status', action='store_true')
+    parser.add_argument('--dry-run', action='store_true')
+    parser.add_argument("--yolo", action='store_true')
+    parser.add_argument("--no-color", action='store_true')
+    parser.add_argument("--dumb", action="store_true")
+    parser.add_argument("--shell-init", choices=["zsh"], default=None,
+                        help="print a shell snippet that turns Do into a "
+                             "ZLE widget instead of a subprocess")
+
+    return parser
 
 
 def is_state_only(command: str) -> bool:
@@ -30,19 +53,13 @@ def is_state_only(command: str) -> bool:
     return bool(stages) and stages[0].head in STATE_ONLY_HEADS
 
 
-EXIT_OK           = 0
-EXIT_CANCELLED    = 1
-EXIT_DENIED       = 2
-EXIT_NO_DAEMON    = 3
-EXIT_INTERRUPTED  = 130
-
-
 def listen_for_key() -> str:
     """One keypress, no Enter. Restores the terminal on every path."""
     fd = sys.stdin.fileno()
     old_settings = termios.tcgetattr(fd)
     try:
         tty.setcbreak(fd)
+        tty.setraw(sys.stdin.fileno())
         ch = sys.stdin.read(1)
         # Handle special case if user hits Enter (returns carriage return or newline)
         if ch in ('\r', '\n'):
@@ -95,28 +112,11 @@ def edit_command(command: str) -> str:
     return edited_cmd
 
 
-SHELLINIT_DIR = Path(__file__).resolve().parent / "shellinit"
-
-
 def shell_init_script(shell: str) -> str:
     """The snippet for `Do --shell-init <shell>` -- read verbatim from
     do/shellinit/, not built inline, so it stays six lines of real zsh
     rather than a Python string half the reader has to mentally unescape."""
     return (SHELLINIT_DIR / f"{shell}.sh").read_text()
-
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog='Do')
-    parser.add_argument('message', default="", nargs='?')
-    parser.add_argument('--status', action='store_true')
-    parser.add_argument('--dry-run', action='store_true')
-    parser.add_argument("--yolo", action='store_true')
-    parser.add_argument("--no-color", action='store_true')
-    parser.add_argument("--shell-init", choices=["zsh"], default=None,
-                        help="print a shell snippet that turns Do into a "
-                             "ZLE widget instead of a subprocess")
-
-    return parser
 
 
 def build_payload(message: str) -> dict:
@@ -196,7 +196,7 @@ def print_translation_noninteractive(response: dict, args) -> int:
 
 
 def print_translation(response: dict, args, config: Config) -> int:
-    color = not args.no_color
+    color = supports_color(args)
     yolo = args.yolo
 
     if not response.get("ok", False):
@@ -230,7 +230,7 @@ def print_translation(response: dict, args, config: Config) -> int:
             else:
                 print(denial(response["command"], reasons=response["reasons"], color=color, yolo=True))
         else:
-            print(color_response(response))
+            print(color_response(response, color=color))
 
         blast_radius_ls = blast_line(response["blast_radius"], color)
 

@@ -1,4 +1,5 @@
 
+import sys
 from collections.abc import Sequence
 
 
@@ -9,9 +10,12 @@ class bcolors:
     ENDC = '\033[0m'
 
 
-def supports_color(stream) -> bool:
+def supports_color(args,) -> bool:
     """isatty AND not NO_COLOR AND TERM != 'dumb'."""
-
+    if sys.stdout.isatty() and not args.no_color and not args.dumb:
+        return True
+    return False
+ 
 def blast_line(blast: dict | None, color: bool) -> str:
     if not blast:
         return ""
@@ -60,12 +64,12 @@ def denial(command: str, reasons: Sequence[str], color: bool, yolo: bool=False) 
         else: 
             return f"{command}{reason_str}"
 
-def color_response(response: dict):
+def color_response(response: dict, color):
     command = response["command"]
 
     # NOTE: DENY is currently caught before, so we only handle warn/ok here - 
     if response["tier"] == "warn":
-        return warning(command, response["reasons"], True)
+        return warning(command, response["reasons"], color)
     else:
-        return ok_command(command, True)
+        return ok_command(command, color)
     
