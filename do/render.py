@@ -57,12 +57,12 @@ def denial(command: str, reasons: Sequence[str], color: bool, yolo: bool=False) 
         if color:
             return f"{bcolors.DENY}[DENIED]{bcolors.ENDC}\n{reason_str}"
         else: 
-            return f"[DENIED]{reason_str}"
+            return f"[DENIED]\n{reason_str}"
     else:
         if color:
             return f"{bcolors.DENY}{command}{bcolors.ENDC}\n{reason_str}"
         else: 
-            return f"{command}{reason_str}"
+            return f"{command}\n{reason_str}"
 
 def color_response(response: dict, color):
     command = response["command"]
