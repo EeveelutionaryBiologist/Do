@@ -63,9 +63,8 @@ def denial(command: str, reasons: Sequence[str], color: bool, yolo: bool=False) 
 def color_response(response: dict):
     command = response["command"]
 
-    if response["tier"] == "deny":
-        return denial(response["reasons"], True)
-    elif response["tier"] == "warn":
+    # NOTE: DENY is currently caught before, so we only handle warn/ok here - 
+    if response["tier"] == "warn":
         return warning(command, response["reasons"], True)
     else:
         return ok_command(command, True)
