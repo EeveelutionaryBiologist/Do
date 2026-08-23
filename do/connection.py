@@ -11,7 +11,7 @@ def build_payload(message: str) -> dict:
         "op": "translate",
         "prompt": message,
         "cwd": os.getcwd(),
-        "shell": "zsh",
+        "shell": os.environ.get("SHELL"),
     }
 
 def build_analyze_payload(command: str) -> dict:
