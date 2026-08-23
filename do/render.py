@@ -2,6 +2,8 @@
 import sys
 from collections.abc import Sequence
 
+from do.safety import format_blast_radius
+
 
 class bcolors:
     OKGREEN = '\033[92m'
@@ -20,15 +22,13 @@ def blast_line(blast: dict | None, color: bool) -> str:
     if not blast:
         return ""
 
-    outlines = "Blast radius:"
+    # outlines = "Blast radius:"
+    blast_string = format_blast_radius(blast=blast)
 
-    for (k, v) in blast.items():
-        if color:
-            outlines += f"\n{bcolors.WARNING}{k}:\t{v}{bcolors.ENDC}"
-        else:
-            outlines += f"\n{k}:\t{v}"
+    if color:
+        return f"{bcolors.WARNING}Blast radius: {blast_string}{bcolors.ENDC}"
 
-    return outlines
+    return f"Blast radius: {blast_string}"
 
 def key_hints(color: bool=False) -> str:
     return "[Enter] run   [e] edit   [q] cancel"
