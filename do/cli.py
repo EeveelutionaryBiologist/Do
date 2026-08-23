@@ -156,6 +156,38 @@ def call(config: Config, payload: dict, timeout: float = 65.0) -> dict:
     return response
 
 
+def build_feedback(response: dict, action: str, exit_code: int) -> dict | None:
+    try:
+        return {
+            "op": "feedback", 
+            "id": response["id"], 
+            "action": action, 
+            "final_command": response["command"], 
+            "exit_code": exit_code,
+        }
+    except Exception as e:
+        return 
+
+
+def send_feedback(config: Config, feedback: dict) -> bool:
+    socket_path = str(config.socket_path)
+    
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+        sock.settimeout(65.0)
+        try:
+            sock.connect(socket_path)
+            sock.sendall(encode(feedback))
+            sock.shutdown(socket.SHUT_WR)
+            response = decode(read_line(sock))
+            if response["ok"]:
+                return True
+                
+        except Exception as exc:
+            print(f"Feedback not recorded.\n{exc}", file=sys.stderr)
+
+    return False
+
+
 def print_status(response: dict) -> int:
     if not response.get("ok", False):
         print(response.get("error", "status request failed"), file=sys.stderr)
@@ -198,6 +230,7 @@ def print_translation_noninteractive(response: dict, args) -> int:
 def print_translation(response: dict, args, config: Config) -> int:
     color = supports_color(args)
     yolo = args.yolo
+    was_edited = False
 
     if not response.get("ok", False):
         print(response.get("error", "translation failed"), file=sys.stderr)
@@ -226,7 +259,11 @@ def print_translation(response: dict, args, config: Config) -> int:
                 print(denial(response["command"], reasons=response["reasons"], color=color, yolo=False),
                       file=sys.stderr)
                 print(blast_line(response["blast_radius"], color), file=sys.stderr)
-                return EXIT_DENIED
+                if args.dry_run:
+                    return EXIT_DENIED
+                exit_code = EXIT_DENIED
+                action = "cancel"
+                break
             else:
                 print(denial(response["command"], reasons=response["reasons"], color=color, yolo=True))
         else:
@@ -241,18 +278,21 @@ def print_translation(response: dict, args, config: Config) -> int:
             return EXIT_OK
 
         action = prompt_for_action(response["tier"], yolo)
+        exit_code = EXIT_OK
 
         if action == "cancel":
-            return EXIT_CANCELLED
+            exit_code = EXIT_CANCELLED
+            break
 
         if action == "run":
             print()
-            return_code = execute(command=response["command"])
-            return EXIT_OK
+            exit_code = execute(command=response["command"])
+            break
 
         if action == "edit": 
             # re-tier before executing -- an edit can turn a
             # WARN command into something that deserves DENY
+            was_edited = True
             edited = edit_command(command=response["command"])
 
             try:
@@ -268,6 +308,16 @@ def print_translation(response: dict, args, config: Config) -> int:
 
             response = {**response, "command": verdict["command"], "tier": verdict["tier"],
                         "reasons": verdict["reasons"], "blast_radius": verdict["blast_radius"]}
+
+    if was_edited:
+        action = "edit"
+
+    feedback = build_feedback(response, action, exit_code)
+
+    if feedback:
+        send_feedback(config, feedback=feedback)
+
+    return exit_code
 
 
 def main(argv=None) -> int:
@@ -285,8 +335,6 @@ def main(argv=None) -> int:
     except ConnectionError as exc:
         print(exc, file=sys.stderr)
         return EXIT_NO_DAEMON
-
-    # print(response)
 
     if args.status:
         return print_status(response)
