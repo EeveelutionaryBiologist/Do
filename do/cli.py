@@ -1,22 +1,14 @@
 
 import argparse
-import socket
-import os
 import sys
-import termios
-import tty
 from pathlib import Path
-
-try:
-    import gnureadline as readline
-except ImportError:
-    import readline
 
 from do.config import Config
 from do import parse as parse_mod
-from do.protocol import encode, decode, read_line
+from do.connection import call, send_feedback, build_payload, build_analyze_payload, build_feedback
 from do.safety import Tier
-from do.render import color_response, supports_color, denial, blast_line, key_hints, render_yellow
+from do.render import color_response, supports_color, denial, blast_line, render_yellow
+from do.interaction import edit_command, prompt_for_action
 from do.execution import execute
 
 
@@ -53,139 +45,11 @@ def is_state_only(command: str) -> bool:
     return bool(stages) and stages[0].head in STATE_ONLY_HEADS
 
 
-def listen_for_key() -> str:
-    """One keypress, no Enter. Restores the terminal on every path."""
-    fd = sys.stdin.fileno()
-    old_settings = termios.tcgetattr(fd)
-    try:
-        tty.setcbreak(fd)
-        tty.setraw(sys.stdin.fileno())
-        ch = sys.stdin.read(1)
-        # Handle special case if user hits Enter (returns carriage return or newline)
-        if ch in ('\r', '\n'):
-            return 'ENTER'
-        return ch
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-
-
-def prompt_for_action(tier: str, yolo: bool = False) -> str:
-    """-> 'run' | 'edit' | 'cancel'"""
-    if tier == "deny" and not yolo:
-        return "cancel"
-
-    print(key_hints())
-
-    while True:
-        try:
-            key = listen_for_key()
-        except KeyboardInterrupt:
-            print("\nInterrupted.", file=sys.stderr)
-            sys.exit(EXIT_INTERRUPTED)
-
-        match key:
-            case "ENTER":
-                return "run"
-            case "e":
-                return "edit"
-            case "q":
-                return "cancel"
-            case _:
-                continue
-
-
-def edit_command(command: str) -> str:
-    """readline, pre-filled with `command`. Returns the edited line."""
-    def _prefill():
-        readline.insert_text(command)
-        readline.redisplay()
-
-    readline.set_pre_input_hook(_prefill)
-    try:
-        edited_cmd = input()
-    except KeyboardInterrupt:
-        print("\nInterrupted.", file=sys.stderr)
-        sys.exit(EXIT_INTERRUPTED)
-    finally:
-        readline.set_pre_input_hook()
-
-    return edited_cmd
-
-
 def shell_init_script(shell: str) -> str:
     """The snippet for `Do --shell-init <shell>` -- read verbatim from
     do/shellinit/, not built inline, so it stays six lines of real zsh
     rather than a Python string half the reader has to mentally unescape."""
     return (SHELLINIT_DIR / f"{shell}.sh").read_text()
-
-
-def build_payload(message: str) -> dict:
-    return {
-        "op": "translate",
-        "prompt": message,
-        "cwd": os.getcwd(),
-        "shell": "zsh",
-    }
-
-def build_analyze_payload(command: str) -> dict:
-    return {
-        "op": "analyze",
-        "command": command,
-        "cwd": os.getcwd(),
-    }
-
-def call(config: Config, payload: dict, timeout: float = 65.0) -> dict:
-    """One request, one response. Raises ConnectionError with a
-    if the daemon is not listening."""
-    socket_path = str(config.socket_path)
-
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
-        sock.settimeout(timeout)
-        try:
-            sock.connect(socket_path)
-        except (FileNotFoundError, ConnectionRefusedError) as exc:
-            raise ConnectionError(
-                f"dod is not running (no daemon at {socket_path}). "
-                f"Start it with `dod --foreground`."
-            ) from exc
-
-        sock.sendall(encode(payload))
-        sock.shutdown(socket.SHUT_WR)
-        response = decode(read_line(sock))
-
-    return response
-
-
-def build_feedback(response: dict, action: str, exit_code: int) -> dict | None:
-    try:
-        return {
-            "op": "feedback", 
-            "id": response["id"], 
-            "action": action, 
-            "final_command": response["command"], 
-            "exit_code": exit_code,
-        }
-    except Exception as e:
-        return 
-
-
-def send_feedback(config: Config, feedback: dict) -> bool:
-    socket_path = str(config.socket_path)
-    
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
-        sock.settimeout(65.0)
-        try:
-            sock.connect(socket_path)
-            sock.sendall(encode(feedback))
-            sock.shutdown(socket.SHUT_WR)
-            response = decode(read_line(sock))
-            if response["ok"]:
-                return True
-                
-        except Exception as exc:
-            print(f"Feedback not recorded.\n{exc}", file=sys.stderr)
-
-    return False
 
 
 def print_status(response: dict) -> int:
