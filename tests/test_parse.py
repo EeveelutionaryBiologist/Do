@@ -54,6 +54,26 @@ def test_quoted_pipe_is_not_a_stage_boundary():
     assert [s.head for s in parsed.stages] == ["echo", "wc"]
 
 
+@pytest.mark.parametrize("command, heads", [
+    ("cd /tmp && rm -rf ~",       ["cd", "rm"]),
+    ("cd /tmp; rm -rf ~",         ["cd", "rm"]),
+    ("cmd1 && cmd2 || cmd3",      ["cmd1", "cmd2", "cmd3"]),
+    ("rm -rf ./safe & rm -rf ~",  ["rm", "rm"]),
+    ("a; b; c",                   ["a", "b", "c"]),
+])
+def test_control_operators_are_stage_boundaries(command, heads):
+    # Regression: only "|" split stages, so "rm" in "cd /tmp && rm -rf ~"
+    # was never its own stage head -- every DELETE_HEADS matcher was blind
+    # to it. See TODO.md item 1.
+    parsed = parse(command)
+    assert [s.head for s in parsed.stages] == heads
+
+
+def test_quoted_control_operator_is_not_a_stage_boundary():
+    parsed = parse('echo "a;b && c" | wc -l')
+    assert [s.head for s in parsed.stages] == ["echo", "wc"]
+
+
 # --- redirects -------------------------------------------------------------
 
 def test_redirect_without_space_is_detected():
