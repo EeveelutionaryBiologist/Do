@@ -5,7 +5,7 @@ from pathlib import Path
 
 from do.config import Config
 from do import parse as parse_mod
-from do.connection import call, send_feedback, build_payload, build_analyze_payload, build_feedback
+from do.connection import call, send_feedback, build_payload, build_analyze_payload, build_feedback, current_shell_name
 from do.safety import Tier
 from do.render import color_response, supports_color, denial, blast_line, render_yellow
 from do.interaction import edit_command, prompt_for_action
@@ -13,6 +13,7 @@ from do.execution import execute
 
 
 STATE_ONLY_HEADS = frozenset({"cd", "export", "source", "alias", "umask"})
+SHELL_INITS = ("zsh", "bash", "fish")
 
 SHELLINIT_DIR = Path(__file__).resolve().parent / "shellinit"
 
@@ -31,7 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--yolo", action='store_true')
     parser.add_argument("--no-color", action='store_true')
     parser.add_argument("--dumb", action="store_true")
-    parser.add_argument("--shell-init", choices=["zsh"], default=None,
+    parser.add_argument("--shell-init", choices=SHELL_INITS, default=None,
                         help="print a shell snippet that turns Do into a "
                              "ZLE widget instead of a subprocess")
 
@@ -112,9 +113,11 @@ def print_translation(response: dict, args, config: Config) -> int:
             else:
                 print(f"{response['command']}")
             if not args.dry_run:
+                shell = current_shell_name()
+                hint = shell if shell in SHELL_INITS else SHELL_INITS[0]
                 print(f"NOTE: Cannot be executed in-line here, as it would only changes this shell's state "
                     f"(cwd, an env var, ...); a child process can't make that stick to the parent "
-                    f"once it exits. Run `Do --shell-init zsh` once to wire up a "
+                    f"once it exits. Run `Do --shell-init {hint}` once to wire up a "
                     f"shell function that can.", file=sys.stderr)
             return EXIT_CANCELLED
 

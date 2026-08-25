@@ -6,12 +6,21 @@ from do.config import Config
 from do.protocol import encode, decode, read_line
 
 
+def current_shell_name() -> str:
+    """Basename of $SHELL, e.g. "zsh" -- matching the "shell: zsh" shape
+    prompt.py's context block expects, and the same $SHELL (with the same
+    fallback) execution.py actually runs the command in, so the model is
+    never told a different shell than the one about to receive what it
+    writes."""
+    return os.path.basename(os.environ.get("SHELL") or "/bin/sh")
+
+
 def build_payload(message: str) -> dict:
     return {
         "op": "translate",
         "prompt": message,
         "cwd": os.getcwd(),
-        "shell": os.environ.get("SHELL"),
+        "shell": current_shell_name(),
     }
 
 def build_analyze_payload(command: str) -> dict:
