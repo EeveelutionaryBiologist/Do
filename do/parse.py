@@ -10,6 +10,7 @@ import shlex
 
 try:
     import bashlex
+    from bashlex.errors import ParsingError as _BashlexParsingError
     _HAS_BASHLEX = True
 except ImportError:
     _HAS_BASHLEX = False
@@ -71,10 +72,9 @@ def parse(command: str) -> ParsedCommand:
 
     if not command:
         return ParsedCommand(stages=(), raw=command)
+    backend = _parse_bashlex if _HAS_BASHLEX else _parse_shlex
     try:
-        # TODO: prefer _parse_bashlex when _HAS_BASHLEX; shlex is the only
-        # backend for now, so dispatching on it would just route to a stub.
-        return _parse_shlex(command)
+        return backend(command)
     except Exception:
         # _parse_shlex catches the ValueError it expects, but
         # a bug anywhere below must not crash the CLI -- and must not be
@@ -220,5 +220,152 @@ def _parse_shlex(command: str) -> ParsedCommand:
     )
 
 
+class _Unsupported(Exception):
+    """A bashlex node this tool has no reason to translate to and no reason
+    to pretend to understand"""
+
+
+def _flatten_to_commands(node) -> list:
+    """Walk a bashlex parse tree, flattening lists and pipelines down to the
+    individual command nodes that become Stages. Raises _Unsupported for
+    anything else."""
+    if node.kind == "command":
+        return [node]
+    if node.kind == "pipeline":
+        commands = []
+        for part in node.parts:
+            if part.kind != "pipe":
+                commands.extend(_flatten_to_commands(part))
+        return commands
+    if node.kind == "list":
+        commands = []
+        for part in node.parts:
+            if part.kind != "operator":
+                commands.extend(_flatten_to_commands(part))
+        return commands
+    raise _Unsupported(node.kind)
+
+
+def _contains_kind(node, kind: str) -> bool:
+    """True if `node` or anything in its subtree has the given bashlex
+    `.kind` -- e.g. a commandsubstitution nested inside a word, however
+    deep (command substitutions can themselves contain command
+    substitutions)."""
+    if getattr(node, "kind", None) == kind:
+        return True
+    for attr in ("parts", "list"):
+        for child in getattr(node, attr, None) or ():
+            if _contains_kind(child, kind):
+                return True
+    for attr in ("command", "output", "input"):
+        child = getattr(node, attr, None)
+        if child is not None and hasattr(child, "kind") and _contains_kind(child, kind):
+            return True
+    return False
+
+
+def _redirect_from_node(node, source: str) -> Redirect:
+    target = node.output
+    if isinstance(target, int):
+        target_text = str(target)
+    elif target is not None and hasattr(target, "word"):
+        target_text = target.word
+    else:
+        target_text = source[node.pos[0]:node.pos[1]]
+    return Redirect(op=node.type, target=target_text)
+
+
+def _stage_from_command_node(node, source: str) -> Stage:
+    raw = source[node.pos[0]:node.pos[1]]
+
+    words = []
+    redirects: list[Redirect] = []
+    for part in node.parts:
+        if part.kind == "redirect":
+            redirects.append(_redirect_from_node(part, source))
+        elif part.kind == "assignment":
+            continue
+        elif part.kind == "word":
+            words.append(part)
+
+    if not words:
+        return Stage(head="", flags=frozenset(), args=(),
+                     redirects=tuple(redirects), raw=raw)
+
+    # Pull off leading wrappers (sudo, xargs) and their own flags, same as
+    # the shlex path.
+    wrappers: set[str] = set()
+    i = 0
+    while i < len(words):
+        text = words[i].word
+        if text in _WRAPPER_ARG_OPTS:
+            wrappers.add(text)
+            i += 1
+            while i < len(words) and words[i].word.startswith("-"):
+                opt = words[i].word
+                i += 1
+                if "=" not in opt and opt in _WRAPPER_ARG_OPTS[text]:
+                    i += 1
+        else:
+            break
+
+    remaining = words[i:]
+    if not remaining:
+        # A wrapper with nothing after it ("sudo -u" alone) -- fail toward
+        # WARN rather than silently returning an empty, unremarkable OK
+        # stage.
+        return Stage(head="", flags=frozenset(), args=(),
+                     wrappers=frozenset(wrappers), redirects=tuple(redirects),
+                     unresolved=frozenset({Unresolved.PARSE_FAILURE}), raw=raw)
+
+    head = remaining[0].word
+    rest = remaining[1:]
+    flags, args = _split_flags([w.word for w in rest])
+
+    unresolved: set[Unresolved] = set()
+    if any(_contains_kind(w, "commandsubstitution") for w in remaining):
+        unresolved.add(Unresolved.COMMAND_SUBST)
+    if any(w.word == "eval" for w in remaining):
+        unresolved.add(Unresolved.EVAL)
+    if any("$" in w.word for w in rest):
+        unresolved.add(Unresolved.UNQUOTED_VAR)
+
+    return Stage(
+        head=head,
+        flags=flags,
+        args=args,
+        redirects=tuple(redirects),
+        wrappers=frozenset(wrappers),
+        unresolved=frozenset(unresolved),
+        raw=raw,
+    )
+
+
 def _parse_bashlex(command: str) -> ParsedCommand:
-    ...
+    try:
+        trees = bashlex.parse(command)
+    except _BashlexParsingError:
+        return ParsedCommand(
+            stages=(Stage(head="", flags=frozenset(), args=(),
+                          unresolved=frozenset({Unresolved.PARSE_FAILURE}),
+                          raw=command),),
+            raw=command,
+        )
+
+    try:
+        command_nodes = []
+        for tree in trees:
+            command_nodes.extend(_flatten_to_commands(tree))
+    except _Unsupported:
+        # Control-flow keywords, subshells, brace groups, function defs --
+        # out of scope for a tool that only ever translates and analyzes
+        # simple commands. Escalate rather than guess at a partial reading.
+        return ParsedCommand(
+            stages=(Stage(head="", flags=frozenset(), args=(),
+                          unresolved=frozenset({Unresolved.PARSE_FAILURE}),
+                          raw=command),),
+            raw=command,
+        )
+
+    stages = tuple(_stage_from_command_node(node, command) for node in command_nodes)
+    return ParsedCommand(stages=stages, raw=command)
