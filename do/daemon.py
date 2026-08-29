@@ -30,12 +30,7 @@ REAP_INTERVAL = 30.0
 
 
 class Daemon:
-    """Owns the socket, the backend, and the verdict.
-    The safety analysis runs here rather than in the client so that a future
-    `Do!`, an editor plugin, and an eventual Rust client all get the same
-    answer without reimplementing the rule table. The client owns the terminal
-    and nothing else.
-    """
+    """Owns the socket, the backend, and the verdict."""
 
     def __init__(self, config):
         self.config = config
@@ -96,6 +91,10 @@ class Daemon:
             return self._analyze_op(request)
         if op == "feedback":
             return self._feedback(request)
+        if op == "export":
+            return self._export(request)
+        if op == "delete":
+            return self._delete()
         if op == "status":
             return self._status()
         if op == "unload":
@@ -107,6 +106,7 @@ class Daemon:
         return protocol.error(f"unknown op: {op}", "bad_request")
 
     def _translate(self, request: dict) -> dict:
+        """Dispatches one request to the translater and returns the result"""
         text = (request.get("prompt") or "").strip()
         if not text:
             return protocol.error("empty prompt", "bad_request")
@@ -200,7 +200,40 @@ class Daemon:
             return {"ok": True, "recorded": False}
         return {"ok": True, "recorded": True}
 
+    def _export(self, request: dict) -> dict:
+        """Exports current content of the cache to json"""
+        if self._store is None:
+            return {"ok": True, "exported": False}
+
+        export = getattr(self._store, "export_jsonl", None)
+        if export is None:
+            return {"ok": True, "exported": False}
+        try:
+            count = export(path=request["path"])
+        except Exception:
+            traceback.print_exc()
+            return {"ok": True, "exported": False}
+        return {"ok": True, "exported": True, "count": count}
+
+    def _delete(self) -> dict:
+        """Wipes cache with no further confirmation. 
+        NOTE: DESTRUCTIVE ACTION.
+        """
+        if self._store is None:
+            return {"ok": True, "deleted": False}
+
+        delete = getattr(self._store, "forget", None)
+        if delete is None:
+            return {"ok": True, "deleted": False}
+        try:
+            delete()
+        except Exception:
+            traceback.print_exc()
+            return {"ok": True, "deleted": False}
+        return {"ok": True, "deleted": True}
+
     def _status(self) -> dict:
+        """Returns Daemon and cache status dict."""
         return {
             "ok": True,
             "uptime_s": round(time.time() - self.started_at, 1),
@@ -243,18 +276,12 @@ class Daemon:
         server.listen(64)
         server.settimeout(0.5)
 
-        # A fixed pool, not a thread per connection: llama-server has one slot,
-        # so concurrency past a handful of workers only queues up inside the
-        # backend anyway.
         pool = concurrent.futures.ThreadPoolExecutor(
             max_workers=SERVER_WORKERS, thread_name_prefix="translate")
 
         threading.Thread(target=self._reap_loop, name="reap",
                          daemon=True).start()
 
-        # systemd stops the unit with SIGTERM; without this the child would be
-        # orphaned rather than unloaded, and the state file left behind for the
-        # next start to reap.
         for sig in (signal.SIGTERM, signal.SIGINT):
             signal.signal(sig, lambda *_: self.stop_event.set())
 

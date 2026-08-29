@@ -29,6 +29,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('message', default="", nargs='?')
     parser.add_argument('--status', action='store_true')
     parser.add_argument('--dry-run', action='store_true')
+    parser.add_argument('--no-cache', action='store_true')
+    parser.add_argument('--forget', action='store_true')
+    parser.add_argument('--export-corpus', nargs='?', const='', default=None,
+                        metavar='PATH',
+                        help="write the corpus as JSONL to PATH "
+                             "(default: <data_dir>/corpus.jsonl)")
     parser.add_argument("--yolo", action='store_true')
     parser.add_argument("--no-color", action='store_true')
     parser.add_argument("--dumb", action="store_true")
@@ -69,6 +75,26 @@ def print_status(response: dict) -> int:
               f"{backend['requests']} requests, {backend['starts']} starts")
     else:
         print("backend not loaded")
+    return EXIT_OK
+
+
+def print_export(response: dict, path: str) -> int:
+    if not response.get("ok", False) or not response.get("exported", False):
+        print(response.get("error", "export failed"), file=sys.stderr)
+        return EXIT_NO_DAEMON
+    count = response.get("count")
+    if count is not None:
+        print(f"Exported {count} rows to {path}")
+    else:
+        print(f"Exported corpus to {path}")
+    return EXIT_OK
+
+
+def print_forget(response: dict) -> int:
+    if not response.get("ok", False) or not response.get("deleted", False):
+        print(response.get("error", "forget failed"), file=sys.stderr)
+        return EXIT_NO_DAEMON
+    print("Cache and corpus cleared.")
     return EXIT_OK
 
 
@@ -195,7 +221,25 @@ def main(argv=None) -> int:
         return EXIT_OK
 
     config = Config()
-    payload = {"op": "status"} if args.status else build_payload(args.message)
+
+    export_path = None
+
+    # --status, --export and --forget are caught here as they do
+    # not lead into a translation operation.
+    if args.status:
+        payload = {"op": "status"}
+    elif args.export_corpus is not None:
+        export_path = (Path(args.export_corpus).expanduser().resolve()
+                       if args.export_corpus else config.data_dir / "corpus.jsonl")
+        payload = {"op": "export", "path": str(export_path)}
+    elif args.forget:
+        confirmation = input("Delete cache? [y/n]")
+        if confirmation in ["Y", "y"]:
+            payload = {"op": "delete"}
+        else:
+            return EXIT_OK
+    else:
+        payload = build_payload(args.message)
 
     try:
         response = call(config, payload)
@@ -205,6 +249,12 @@ def main(argv=None) -> int:
 
     if args.status:
         return print_status(response)
+
+    if export_path is not None:
+        return print_export(response, str(export_path))
+
+    if args.forget:
+        return print_forget(response)
 
     if sys.stdout.isatty():
         return print_translation(response, args, config)

@@ -121,9 +121,7 @@ class Store:
 
     def record_outcome(self, *, request_id: str | None, action: str | None,
                         final_command: str | None, exit_code: int | None) -> None:
-        # A malformed or future client could omit any of these - daemon.py
-        # passes request.get(...) straight through unvalidated, and feedback
-        # is meant to degrade quietly 
+        
         with self._lock:
             self.db.execute(
                 "INSERT INTO outcomes (request_id, action, final_command, "
@@ -135,8 +133,7 @@ class Store:
     # -- maintenance ------------------------------------------------------
 
     def forget(self) -> None:
-        """Drop and recreate both tables in place -- the same running daemon
-        must keep working afterward with no restart."""
+        """Drop and recreate both tables in place"""
         with self._lock:
             self.db.executescript(
                 "DROP TABLE IF EXISTS requests; DROP TABLE IF EXISTS outcomes;"
@@ -144,7 +141,7 @@ class Store:
             self.db.executescript(SCHEMA)
             self.db.commit()
 
-    def export_jsonl(self, path) -> int:
+    def export_jsonl(self, path: str) -> int:
         """One JSON object per request, each carrying its most recent
         outcome (or null) embedded. Returns the row count written."""
         with self._lock:
