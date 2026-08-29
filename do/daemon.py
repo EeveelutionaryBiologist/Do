@@ -85,25 +85,27 @@ class Daemon:
     def handle(self, request: dict) -> dict:
         op = request.get("op", "translate")
 
-        if op == "translate":
-            return self._translate(request)
-        if op == "analyze":
-            return self._analyze_op(request)
-        if op == "feedback":
-            return self._feedback(request)
-        if op == "export":
-            return self._export(request)
-        if op == "delete":
-            return self._delete()
-        if op == "status":
-            return self._status()
-        if op == "unload":
-            return {"ok": True, "unloaded": self.backend.stop("requested")}
-        if op == "shutdown":
-            self.stop_event.set()
-            return {"ok": True, "stopping": True}
-
-        return protocol.error(f"unknown op: {op}", "bad_request")
+        match op:
+            case "translate":
+                return self._translate(request)
+            case "analyze":
+                return self._analyze_op(request)
+            case "feedback":
+                return self._feedback(request)
+            case "export":
+                return self._export(request)
+            case "delete":
+                return self._delete()
+            case "status":
+                return self._status()
+            case "unload":
+                return {"ok": True, "unloaded": self.backend.stop("requested")}
+            case "shutdown":
+                self.stop_event.set()
+                return {"ok": True, "stopping": True}
+            case _:
+                return protocol.error(f"unknown op: {op}", "bad_request")
+                
 
     def _translate(self, request: dict) -> dict:
         """Dispatches one request to the translater and returns the result"""
