@@ -222,13 +222,25 @@ def _parse_shlex(command: str) -> ParsedCommand:
 
 class _Unsupported(Exception):
     """A bashlex node this tool has no reason to translate to and no reason
-    to pretend to understand"""
+    to pretend to understand -- conditionals, case statements, function
+    definitions. Unlike a loop or a subshell, these don't unconditionally
+    run their contents as part of running this command line (an "if" might
+    take either branch; a function definition doesn't call the function),
+    so there's no single honest reading of "what stages does this line
+    run" to extract. Falls back to a whole-command PARSE_FAILURE stage
+    rather than guessing at one branch."""
+
+
+# Kinds whose contents unconditionally run as part of running this command
+# line -- a loop's body (and, for while/until, its condition) always
+# executes, unlike an "if"/"case" branch or a function body.
+_LOOP_KINDS = ("for", "while", "until")
 
 
 def _flatten_to_commands(node) -> list:
-    """Walk a bashlex parse tree, flattening lists and pipelines down to the
-    individual command nodes that become Stages. Raises _Unsupported for
-    anything else."""
+    """Walk a bashlex parse tree, flattening lists, pipelines, loops, and
+    subshell/brace groups down to the individual command nodes that become
+    Stages. """
     if node.kind == "command":
         return [node]
     if node.kind == "pipeline":
@@ -242,6 +254,26 @@ def _flatten_to_commands(node) -> list:
         for part in node.parts:
             if part.kind != "operator":
                 commands.extend(_flatten_to_commands(part))
+        return commands
+    if node.kind == "compound":
+        # A subshell "(...)" or brace group "{ ...; }" -- just a wrapper;
+        # only the "(" / ")" / "{" / "}" reservedwords need skipping.
+        commands = []
+        for part in node.list:
+            if part.kind != "reservedword":
+                commands.extend(_flatten_to_commands(part))
+        return commands
+    if node.kind in _LOOP_KINDS:
+        # Skip the syntax markers ("for"/"do"/"done"/...) and, for a "for"
+        # loop, the "word" parts -- the loop variable and the
+        # list-expression items, not commands. What's left is the body
+        # (and, for while/until, the condition -- itself a command that
+        # genuinely runs each iteration, e.g. "while read line").
+        commands = []
+        for part in node.parts:
+            if part.kind in ("reservedword", "word"):
+                continue
+            commands.extend(_flatten_to_commands(part))
         return commands
     raise _Unsupported(node.kind)
 
@@ -358,8 +390,6 @@ def _parse_bashlex(command: str) -> ParsedCommand:
             command_nodes.extend(_flatten_to_commands(tree))
     except _Unsupported:
         # Control-flow keywords, subshells, brace groups, function defs --
-        # out of scope for a tool that only ever translates and analyzes
-        # simple commands. Escalate rather than guess at a partial reading.
         return ParsedCommand(
             stages=(Stage(head="", flags=frozenset(), args=(),
                           unresolved=frozenset({Unresolved.PARSE_FAILURE}),

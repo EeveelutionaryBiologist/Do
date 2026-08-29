@@ -29,7 +29,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Callable
 
-from .parse import ParsedCommand, Stage
+from .parse import ParsedCommand, Stage, Unresolved
 
 
 class Tier(Enum):
@@ -292,7 +292,19 @@ def _m_sudo(stage: Stage, ctx: Context) -> bool:
 
 
 def _m_unresolved(stage: Stage, ctx: Context) -> bool:
-    return bool(stage.unresolved)
+    if not stage.unresolved:
+        return False
+    # eval and a genuine parse failure mean we understand nothing about
+    # this stage at all -- worth a second look regardless of what command
+    # it is. An unresolved variable or command substitution is narrower:
+    # PLAN.md's own example is "rm -rf $DIR/" -- it matters because we
+    # can't tell whether a *destructive* target is safe, not because a
+    # value is unknown at all. "echo $HOME" or "head \"$file\"" not
+    # knowing the value ahead of time isn't a safety question -- read-only
+    # commands can't be made dangerous by which value they receive.
+    if stage.unresolved & {Unresolved.EVAL, Unresolved.PARSE_FAILURE}:
+        return True
+    return stage.head in DELETE_HEADS
 
 
 def _m_recursive_delete_outside_cwd(stage: Stage, ctx: Context) -> bool:
