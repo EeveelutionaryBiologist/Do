@@ -70,9 +70,10 @@ def print_status(response: dict) -> int:
           f"{response['cache_hits']} cache hits "
           f"(safety: {response['safety']}, cache: {response['cache']})")
     if backend.get("loaded"):
+        gpu_note = ", gpu offload" if backend.get("gpu_offload") else ""
         print(f"backend loaded -- {backend['rss_mb']} MB, "
               f"idle {backend['idle_s']:.0f}s, "
-              f"{backend['requests']} requests, {backend['starts']} starts")
+              f"{backend['requests']} requests, {backend['starts']} starts{gpu_note}")
     else:
         print("backend not loaded")
     return EXIT_OK

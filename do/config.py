@@ -58,6 +58,7 @@ class Config:
     threads: int = DEFAULT_THREADS
     ctx_size: int = DEFAULT_CTX
     pin_to_fast_cores: bool = True
+    use_gpu: bool = False
     server_log: bool = False                # inherit llama-server's stderr
 
     # Lazy load, idle unload. 
@@ -127,7 +128,7 @@ def load(path: Path = None) -> Config:
 
     backend = raw.get("backend", {})
     for key in ("server_binary", "threads", "ctx_size", "pin_to_fast_cores",
-                "server_log", "idle_timeout", "startup_timeout",
+                "use_gpu", "server_log", "idle_timeout", "startup_timeout",
                 "request_timeout"):
         if key in backend:
             updates[key] = backend[key]

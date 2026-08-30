@@ -19,6 +19,19 @@ from pathlib import Path
 from . import prompt as prompt_mod
 from .config import performance_cores
 
+_LIST_DEVICES_TIMEOUT = 5.0
+_GPU_OFFLOAD_ARG = "all"
+_GPU_CPU_ONLY_ARG = "0"
+
+
+def _parse_list_devices(stdout: str) -> bool:
+    """True if `llama-server --list-devices` reported at least one device."""
+    lines = [ln.strip() for ln in stdout.splitlines() if ln.strip()]
+    body = lines[1:]
+    if not body or (len(body) == 1 and body[0].lower() == "(none)"):
+        return False
+    return True
+
 
 class BackendError(Exception):
     """Carries a machine-readable code so cli.py can distinguish 'go install
@@ -68,6 +81,7 @@ class LlamaServer:
         self._loaded_at = 0.0
         self._failures = 0
         self._retry_after = 0.0
+        self._gpu_offload: bool | None = None
 
         self.starts = 0
         self.requests = 0
@@ -109,6 +123,25 @@ class LlamaServer:
         self._failures = 0
         self._retry_after = 0.0
 
+    def _probe_gpu_available(self, binary: str) -> bool:
+        """Ask this exact llama-server binary whether it sees a usable device."""
+        try:
+            result = subprocess.run(
+                [binary, "--list-devices"], capture_output=True,
+                encoding="utf-8", errors="replace",
+                timeout=_LIST_DEVICES_TIMEOUT)
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        if result.returncode != 0:
+            return False
+        return _parse_list_devices(result.stdout)
+
+    def _resolve_gpu_offload(self, binary: str) -> bool:
+        """Resolves and caches, for this process's life, whether to offload."""
+        if self._gpu_offload is None:
+            self._gpu_offload = bool(self.config.use_gpu) and self._probe_gpu_available(binary)
+        return self._gpu_offload
+
     def _argv(self, port: int) -> list[str]:
         binary = shutil.which(self.config.server_binary)
         if binary is None:
@@ -128,6 +161,7 @@ class LlamaServer:
             "-t", str(self.config.threads),
             "-tb", str(self.config.threads),
             "--parallel", "1",
+            "-ngl", _GPU_OFFLOAD_ARG if self._resolve_gpu_offload(binary) else _GPU_CPU_ONLY_ARG,
         ]
 
         if self.config.pin_to_fast_cores:
@@ -170,8 +204,12 @@ class LlamaServer:
             except BackendError as exc:
                 last_error = exc
                 self._collect_locked(f"health check failed: {exc}")
-                if exc.code == "model_load_failed":
-                    raise               # a bad model file will not fix itself
+                if self._gpu_offload:
+                    self._gpu_offload = False
+                    print(f"GPU offload failed ({exc}); falling back to "
+                          "CPU-only for this session", file=sys.stderr)
+                elif exc.code == "model_load_failed":
+                    raise               
                 time.sleep(0.2 * (attempt + 1))
                 continue
 
@@ -355,4 +393,5 @@ class LlamaServer:
                 "requests": self.requests,
                 "model": self.config.model_file,
                 "threads": self.config.threads,
+                "gpu_offload": self._gpu_offload,
             }
