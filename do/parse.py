@@ -343,9 +343,6 @@ def _stage_from_command_node(node, source: str) -> Stage:
 
     remaining = words[i:]
     if not remaining:
-        # A wrapper with nothing after it ("sudo -u" alone) -- fail toward
-        # WARN rather than silently returning an empty, unremarkable OK
-        # stage.
         return Stage(head="", flags=frozenset(), args=(),
                      wrappers=frozenset(wrappers), redirects=tuple(redirects),
                      unresolved=frozenset({Unresolved.PARSE_FAILURE}), raw=raw)

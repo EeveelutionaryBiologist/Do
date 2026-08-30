@@ -66,9 +66,7 @@ class Config:
     request_timeout: float = 60.0
 
     # Greedy. The SQLite cache in store.py returns the previously
-    # generated command for a repeated prompt, and that is only honest if the
-    # model would have produced the same thing anyway. Sampling would make the
-    # cache "a lie".
+    # generated command for a repeated prompt.
     temperature: float = 0.0
     n_predict: int = 96
 

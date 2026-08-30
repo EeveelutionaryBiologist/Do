@@ -1,21 +1,7 @@
+"""The system prompt, the few-shots, and the grammar."""
 
-"""The system prompt, the few-shots, and the grammar.
 
-Treated as a versioned artifact: PROMPT_VERSION is recorded against every row
-in the corpus, so a translation that regresses can be traced to the prompt edit
-that caused it rather than blamed on the model.
-"""
-
-# Bump on any change to SYSTEM, FEW_SHOTS, or the context block. The corpus is
-# a fine-tuning dataset; rows generated under different prompts are different
-# experiments and need to be separable after the fact.
 PROMPT_VERSION = "1.0"
-
-# Qwen2.5 is a ChatML model. Formatting the conversation here rather than
-# posting to /v1/chat/completions is deliberate: it keeps the exact token
-# sequence under this file's control, and it leaves /completion free for the
-# `grammar` parameter, which the OpenAI-compatible endpoint does not carry
-# across llama.cpp versions.
 IM_START = "<|im_start|>"
 IM_END = "<|im_end|>"
 
@@ -45,11 +31,6 @@ FEW_SHOTS = (
     ("show the git log",                        "git log"),         # not --oneline
 )
 
-# Forbids a leading backtick and any newline, so a small model cannot wrap its
-# answer in a fence or volunteer a second line of commentary. Cheap insurance:
-# it constrains the sampler rather than asking the prompt to be persuasive.
-# The whole match is optional so the model can still emit nothing at all, which
-# rule 7 requires of it.
 GRAMMAR = r"""root  ::= ( first rest* )?
 first ::= [^`\n\r]
 rest  ::= [^\n\r]"""
@@ -61,14 +42,7 @@ def _turn(role: str, content: str) -> str:
 
 def build(request: str, cwd: str = "", shell: str = "", os_name: str = "",
           listing: str = "") -> str:
-    """Render the full ChatML prompt for one request.
-
-    The context block goes in the final user turn, not the system turn. That
-    ordering is what makes prefix caching work: system and few-shots are byte
-    identical across every request in a session, so llama-server reuses their
-    KV cache and only processes the last few dozen tokens. Putting a changing
-    cwd in the system turn would invalidate the entire prefix on every `cd`.
-    """
+    """Render the full ChatML prompt for one request."""
     parts = [_turn("system", SYSTEM)]
 
     for example_request, example_command in FEW_SHOTS:
@@ -82,8 +56,6 @@ def build(request: str, cwd: str = "", shell: str = "", os_name: str = "",
         context.append(f"os: {os_name}")
     if cwd:
         context.append(f"cwd: {cwd}")
-    # Opt-in only (`Do --context ls`). A model that can see *.log in the cwd
-    # starts inventing filters, which is intent-assumption failure
     if listing:
         context.append(f"files here: {listing}")
 
@@ -95,19 +67,12 @@ def build(request: str, cwd: str = "", shell: str = "", os_name: str = "",
 
 
 def stop_tokens() -> list[str]:
-    # The newline is the real one -- the grammar already forbids generating it,
-    # but a stop string costs nothing and covers a llama.cpp build whose
-    # grammar handling differs.
+    """Terminal characters - the newline is the real one"""
     return [IM_END, "<|endoftext|>", "\n"]
 
 
 def extract(raw: str) -> str:
-    """Clean a completion into a bare command. Mostly for when the model misbehaves.
-
-    The grammar makes almost all of this unreachable. It stays because the
-    grammar is a llama.cpp feature and whatever
-    comes back, the CLI is handed one line or an empty string.
-    """
+    """Clean a completion into a bare command. Mostly for when the model misbehaves."""
     text = raw.strip()
 
     if text.startswith("```"):

@@ -4,19 +4,7 @@
 Each row is a rule: an id, a tier, a matcher, a reason, and its own test cases.
 Data rather than code so tests/test_safety.py can enumerate the table and
 assert that every rule carries both a case it must catch and a case it must
-leave alone. A rule without a negative case is how false positives get in, and
-a tool that cries wolf gets disabled.
-
-Two things are deliberately absent:
-
-  * There is no escalation machinery. PLAN.md describes `sudo` and an
-    unresolvable parse as bumps that raise OK to WARN and stop there; here they
-    are simply WARN-tier rows. The cap then falls out of the table rather than
-    being a rule about rules, and "DENY membership comes only from an explicit
-    rule" is true by construction.
-  * No rule reads the filesystem except the two that cannot answer without it,
-    and both check ctx.allow_fs first. Analysis has to stay a pure function of
-    a string for the test suite to be worth anything.
+leave alone. 
 """
 
 from __future__ import annotations
@@ -49,13 +37,7 @@ class Scope(Enum):
 
 @dataclass(frozen=True)
 class Context:
-    """Everything a matcher may know beyond the command text itself.
-
-    `path_lookup` is injected rather than calling shutil.which directly so the
-    test suite is hermetic. Otherwise `pacman -R foo` would tier differently on
-    Arch than on Ubuntu, and the must-not-flag set -- the thing keeping this
-    layer honest -- would be a machine-dependent coin flip.
-    """
+    """Everything a matcher may know beyond the command text itself."""
     cwd: Path | None = None
     path_lookup: Callable[[str], bool] = staticmethod(
         lambda name: shutil.which(name) is not None)
@@ -174,13 +156,7 @@ def is_recursive(stage: Stage) -> bool:
 
 
 def outside_cwd(target: str, ctx: Context) -> bool:
-    """True if `target` resolves outside the cwd subtree.
-
-    normpath rather than resolve(): no filesystem access and no symlink
-    following, so the answer is a pure function of two strings. A symlink
-    pointing out of the tree defeats this, which is why it is a WARN heuristic
-    and not a DENY rule.
-    """
+    """True if `target` resolves outside the cwd subtree."""
     if ctx.cwd is None:
         return False
     target = target.strip().strip("'\"")
@@ -193,17 +169,7 @@ def outside_cwd(target: str, ctx: Context) -> bool:
 
 
 def targets_whole_cwd(target: str, ctx: Context) -> bool:
-    """True if `target` names the current directory or all of its contents.
-
-    The companion to outside_cwd(), and the gap it used to leave: PLAN.md
-    defines the recursive-delete warning as firing *outside* the cwd subtree,
-    which leaves deleting the subtree's own root as OK. `rm -rf .` and
-    `rm -rf *` wipe a whole working directory on a single Enter, and neither
-    is outside anything.
-
-    A glob deeper than the cwd (`build/*`) is deliberately not covered: it is
-    the same blast radius as `rm -rf build`, which PLAN.md pins as OK.
-    """
+    """True if `target` names the current directory or all of its contents."""
     target = target.strip().strip("'\"")
     if not target:
         return False
@@ -394,12 +360,7 @@ def _m_firewall(stage: Stage, ctx: Context) -> bool:
 
 
 def _m_truncate_existing(stage: Stage, ctx: Context) -> bool:
-    """`> file` on a file that currently has contents.
-
-    One of two rules that touch the filesystem. The distinction it draws --
-    creating a file versus emptying one -- cannot be made from the string, and
-    emptying a file the user forgot was there is a real and quiet loss.
-    """
+    """`> file` on a file that currently has contents."""
     if not ctx.allow_fs:
         return False
     for redirect in stage.redirects:
@@ -441,12 +402,7 @@ def _m_killall(stage: Stage, ctx: Context) -> bool:
 
 
 def _m_unknown_head(stage: Stage, ctx: Context) -> bool:
-    """A head command that is not on $PATH.
-
-    Usually a hallucinated tool name. It is WARN and not DENY because the other
-    common cause is a real program the daemon's environment cannot see -- a
-    systemd unit has a narrower PATH than a login shell.
-    """
+    """A head command that is not on $PATH."""
     head = stage.head
     if not head or head in SHELL_BUILTINS:
         return False

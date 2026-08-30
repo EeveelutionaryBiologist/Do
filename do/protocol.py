@@ -6,11 +6,13 @@ ENCODING = "utf-8"
 
 
 def encode(message: dict) -> bytes:
+    """Encoding for the dod daemon socket"""
     return (json.dumps(message, ensure_ascii=False,
                        separators=(",", ":")) + "\n").encode(ENCODING)
 
 
 def decode(line: bytes) -> dict:
+    """Decoding from socket"""
     return json.loads(line.decode(ENCODING))
 
 

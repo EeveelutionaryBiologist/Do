@@ -83,6 +83,7 @@ class Store:
     # -- cache ------------------------------------------------------------
 
     def lookup(self, prompt: str) -> str | None:
+        """Check if prompt already exists in cache and return if so."""
         prompt_norm = _normalize(prompt)
         with self._lock:
             row = self.db.execute(
@@ -97,6 +98,7 @@ class Store:
     def record_request(self, *, prompt: str, cwd: str, shell: str, os: str,
                         model: str, prompt_version: str, command: str,
                         tier: str, latency_ms: float, cached: bool) -> str:
+        """Write a prompt-command pair and context into the db"""
         prompt_norm = _normalize(prompt)
         ts = time.time()
 
@@ -121,6 +123,7 @@ class Store:
 
     def record_outcome(self, *, request_id: str | None, action: str | None,
                         final_command: str | None, exit_code: int | None) -> None:
+        """Write the -outcome- of a translated command - i.e., what happened next."""
         
         with self._lock:
             self.db.execute(

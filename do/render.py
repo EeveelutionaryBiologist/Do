@@ -19,10 +19,10 @@ def supports_color(args,) -> bool:
     return False
  
 def blast_line(blast: dict | None, color: bool) -> str:
+    """Pass forward the blast string from the corresponding safety function"""
     if not blast:
         return ""
-
-    # outlines = "Blast radius:"
+    
     blast_string = format_blast_radius(blast=blast)
 
     if color:
@@ -31,18 +31,22 @@ def blast_line(blast: dict | None, color: bool) -> str:
     return f"Blast radius: {blast_string}"
 
 def key_hints(color: bool=False) -> str:
+    """Input hints for the user"""
     return "[Enter] run   [e] edit   [q] cancel"
 
 def ok_command(command: str, color: bool) -> str:
+    """No warning/deny issued -> print green if color"""
     if color:
         return f"{bcolors.OKGREEN}{command}{bcolors.ENDC}"
     else: 
         return f"{command}"
 
 def render_yellow(text: str) -> str:
+    """Warning highlighting outside of the regular warning context"""
     return f"{bcolors.WARNING}{text}{bcolors.ENDC}"
 
 def warning(command: str, reasons: Sequence[str], color: bool) -> str:
+    """Render as warning"""
     reason_str = "\n".join(reasons)
 
     if color:
@@ -51,6 +55,7 @@ def warning(command: str, reasons: Sequence[str], color: bool) -> str:
         return f"{command}\n{reason_str}"
 
 def denial(command: str, reasons: Sequence[str], color: bool, yolo: bool=False) -> str:
+    """Render asd denial"""
     reason_str = "\n".join(reasons)
 
     if not yolo:
@@ -65,6 +70,7 @@ def denial(command: str, reasons: Sequence[str], color: bool, yolo: bool=False) 
             return f"{command}\n{reason_str}"
 
 def color_response(response: dict, color):
+    """Passes reesponse forward to rendering functions"""
     command = response["command"]
 
     # NOTE: DENY is currently caught before, so we only handle warn/ok here - 

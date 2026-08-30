@@ -1,14 +1,5 @@
 
-"""The tier engine: a command string in, a verdict out.
-
-Pure with respect to the command text. The only filesystem access is the blast
-radius walk and the one rule that has to tell an empty file from a full one,
-and both are behind `Context.allow_fs` so the test suite can switch them off.
-
-The daemon owns this, not the CLI. A future `Do!`, an editor plugin, and the
-Rust client all ask the same question over the same socket and get the same
-answer, rather than each carrying its own copy of the rule table that drifts.
-"""
+"""The tier engine: a command string in, a verdict out."""
 
 from __future__ import annotations
 
@@ -21,9 +12,7 @@ from . import parse as parse_mod
 from .rules import (CWD_TARGETS, DELETE_HEADS, ORDER, RULES, Context, Rule,
                     Scope, Tier, is_recursive)
 
-# Caps for the blast-radius walk. The number is a fact worth having, not a
-# census: 10k entries is enough to say "this is big" and the time budget is
-# what keeps the answer from delaying the prompt it is supposed to inform.
+
 MAX_ENTRIES = 10_000
 BUDGET_S = 0.15
 
@@ -69,9 +58,6 @@ def analyze(command: str, cwd=None, context: Context | None = None) -> Verdict:
             else:
                 hit = any(rule.matcher(stage, context) for stage in parsed.stages)
         except Exception:
-            # A matcher that raises is a bug in this file, not a safe command.
-            # Fail toward the tier that still shows the user something rather
-            # than toward silence.
             matched.append(_ERROR_RULE)
             continue
         if hit:
@@ -141,16 +127,9 @@ def _blast_radius_for(parsed, context) -> dict | None:
 def blast_radius(target: str, cwd: Path | None = None,
                  max_entries: int = MAX_ENTRIES,
                  budget_s: float = BUDGET_S) -> dict | None:
-    """Count what `target` covers, read-only and time-boxed.
-
-    Turns an abstract warning into a concrete fact, which matters more here
-    than it would with a confirmation prompt in the way: a WARN deletion runs
-    on a single Enter, so this line is the last thing between the user and the
-    delete rather than a preamble to a yes/no.
-
-    Returns None when the target does not exist -- there is nothing to warn
-    about, and claiming "0 files" would read as a measurement rather than an
-    absence.
+    """
+    Count what `target` covers, read-only and time-boxed.
+    Turns an abstract warning into a concrete fact.
     """
     path = Path(os.path.expanduser(target))
     if not path.is_absolute() and cwd is not None:
