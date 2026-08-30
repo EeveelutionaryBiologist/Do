@@ -1,0 +1,37 @@
+# 
+# EXAMPLE CONFIGURATION 
+#
+# Every key is optional and shown at its default.
+# Copy to $XDG_CONFIG_HOME/do/config.toml (usually ~/.config/do/config.toml);
+# dod reads nothing from this directory at runtime.
+
+[model]
+# model_dir  = "~/Work/Projects/Do/models"
+model_file   = "qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+repo_id      = "Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF"
+
+# NOTE: The intended use is to leave temperature at zero. 
+# Change at own risk.
+temperature  = 0.0
+n_predict    = 96
+
+[backend]
+server_binary = "llama-server"
+threads            = 4
+pin_to_fast_cores  = true
+ctx_size = 4096
+
+# Offload to GPU if llama-server's --list-devices sees one; otherwise stays
+# CPU-only automatically
+use_gpu = false
+
+# Lazy load, idle unload (seconds)
+idle_timeout    = 900
+startup_timeout = 90.0
+request_timeout = 60.0
+
+# Let llama-server's own logging through to dod's stderr
+server_log = false
+
+# [paths]
+# data_dir = "~/.local/share/do"
