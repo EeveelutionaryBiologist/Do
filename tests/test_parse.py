@@ -1,7 +1,18 @@
-"""Tests for do.parse -- shlex backend."""
+"""Tests for do.parse.
+
+Everything above the "bashlex-specific" section runs against whichever
+backend parse() actually dispatches to (bashlex when the optional `parse`
+extra is installed, shlex otherwise) and asserts on the same Stage/
+ParsedCommand contract either way -- these cases hold under both backends
+by construction, so they aren't backend-aware at all."""
 
 import pytest
+from do import parse as parse_mod
 from do.parse import ParsedCommand, Redirect, Stage, Unresolved, parse
+
+requires_bashlex = pytest.mark.skipif(
+    not parse_mod._HAS_BASHLEX,
+    reason="needs the optional `parse` extra (bashlex) installed")
 
 
 def one(command: str) -> Stage:
@@ -103,3 +114,73 @@ def test_swallowed_command_fails_closed():
     # head with no failure marker -- rm -rf / scoring OK.
     stage = one("sudo -n rm -rf /")
     assert stage.head == "rm" or Unresolved.PARSE_FAILURE in stage.unresolved
+
+
+# --- bashlex-specific ------------------------------------------------------
+#
+# These are real fidelity gains only the bashlex backend delivers -- the
+# shlex fallback (a plain tokenizer with no grammar) has no way to draw
+# either distinction below. Guarded so the suite still passes clean when the
+# optional `parse` extra isn't installed; see the module docstring.
+
+@requires_bashlex
+def test_assignment_prefix_does_not_hide_the_head():
+    # Regression: shlex has no notion of a leading env-var assignment, so
+    # "FOO=bar" itself became the stage head and "rm" was just an arg to
+    # it -- every DELETE_HEADS matcher was blind to the real command.
+    # "FOO=bar rm -rf /" scored OK. bashlex tags this as its own
+    # AssignmentNode kind, so it can be skipped rather than mistaken for
+    # the command.
+    stage = one("FOO=bar rm -rf /")
+    assert stage.head == "rm"
+    assert stage.args == ("/",)
+
+
+@requires_bashlex
+def test_escaped_semicolon_in_find_exec_is_not_a_stage_boundary():
+    # Regression: shlex unescapes "\;" to a bare ";" before the stage
+    # splitter ever sees it, indistinguishable from a real command
+    # separator -- "find ... -exec rm {} \; -o -name foo -delete" split
+    # into two stages, and the trailing "-o -name foo -delete" stopped
+    # being analyzed as part of the find command at all. bashlex's
+    # tokenizer understands the escape, so the semicolon stays a literal
+    # word inside the find command.
+    parsed = parse(r"find . -exec rm {} \; -o -name foo -delete")
+    assert [s.head for s in parsed.stages] == ["find"]
+    assert "-delete" in parsed.stages[0].raw
+
+
+@requires_bashlex
+def test_control_flow_construct_fails_closed():
+    # if/case/function defs don't unconditionally run their contents (an
+    # "if" might take either branch; a function definition doesn't call
+    # the function) -- out of scope, must escalate rather than be guessed
+    # at as some single simple command.
+    stage = one("if true; then rm -rf /; fi")
+    assert Unresolved.PARSE_FAILURE in stage.unresolved
+
+
+@requires_bashlex
+def test_for_loop_body_is_extracted_as_its_own_stage():
+    # Regression: for/while/subshells/brace groups used to be treated the
+    # same as if/case -- the whole line collapsed into one PARSE_FAILURE
+    # stage, so nothing inside was ever actually analyzed. A loop's body
+    # (unlike an "if" branch) unconditionally runs, so it should become a
+    # real stage the rule table can see.
+    parsed = parse('for file in do/*; do head -n 3 "$file"; done')
+    assert [s.head for s in parsed.stages] == ["head"]
+    assert parsed.stages[0].args == ("3", "$file")
+
+
+@requires_bashlex
+def test_while_condition_and_body_are_both_extracted():
+    # The condition ("read line") is itself a command that runs each
+    # iteration, same as the body.
+    parsed = parse("while read line; do echo $line; done")
+    assert [s.head for s in parsed.stages] == ["read", "echo"]
+
+
+@requires_bashlex
+def test_subshell_and_brace_group_contents_are_extracted():
+    assert one("(rm -rf /)").head == "rm"
+    assert one("{ rm -rf /; }").head == "rm"

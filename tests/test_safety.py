@@ -18,8 +18,13 @@ surfaced yet.
 
 import pytest
 
+from do import parse as parse_mod
 from do import safety
 from do.rules import RULES, RULES_BY_ID, Context, Scope, Tier
+
+requires_bashlex = pytest.mark.skipif(
+    not parse_mod._HAS_BASHLEX,
+    reason="needs the optional `parse` extra (bashlex) installed")
 
 # The PATH is injected rather than read. Otherwise `pacman -R foo` tiers
 # differently on Arch than on Ubuntu and `docker rm mycontainer` -- which
@@ -333,6 +338,18 @@ MUST_NOT_FLAG = [
     ("mkdir notes && cd notes", Tier.OK, ()),
     ("cd /tmp && ls -a", Tier.OK, ()),
     ("cp a.txt b.txt; cat b.txt", Tier.OK, ()),
+
+    # A variable reference alone must not make an otherwise-read-only
+    # command WARN. Regression: warn.unresolved used to fire on *any*
+    # "$" in *any* arg, so "echo \"Hello $USER\"" -- about as harmless as
+    # a command gets -- scored WARN. PLAN.md's own example for why an
+    # unresolved variable matters is "rm -rf $DIR/": the risk is a
+    # *destructive* command receiving an unknown target, not "a value is
+    # unknown" in the abstract.
+    ('echo "Hello $USER"', Tier.OK, ()),
+    ('cat "$file"', Tier.OK, ()),
+    ('wc -l "$1"', Tier.OK, ()),
+    ("echo $HOME", Tier.OK, ()),
 ]
 
 
@@ -437,3 +454,73 @@ def test_no_blast_radius_for_an_ok_command(tmp_path):
     verdict = safety.analyze("ls -a",
                              context=fake_context(tmp_path, allow_fs=True))
     assert verdict.blast_radius is None
+
+
+# ---------------------------------------------------------------------------
+# bashlex-specific: a real fidelity gain the shlex fallback can't match --
+# it has no notion of a leading env-var assignment, so "FOO=bar" itself
+# became the stage head and every DELETE_HEADS matcher was blind to the
+# real command that followed. Guarded so the suite stays green without the
+# optional `parse` extra installed.
+# ---------------------------------------------------------------------------
+
+@requires_bashlex
+def test_env_assignment_prefix_does_not_hide_a_root_delete(cwd):
+    verdict = tier_of("FOO=bar rm -rf /", cwd)
+    assert verdict.tier is Tier.DENY
+    # Not exact-equality on rule_ids: "/" is also outside the tmp_path cwd
+    # this test happens to run in, so warn.recursive_delete_outside_cwd
+    # legitimately co-fires -- incidental to what this test is checking,
+    # which is specifically that deny.rm_root sees "rm" as the head at all.
+    assert "deny.rm_root" in verdict.rule_ids
+
+
+# ---------------------------------------------------------------------------
+# bashlex-specific: for/while/subshell/brace-group bodies are now actually
+# analyzed instead of the whole command being marked PARSE_FAILURE. Real
+# bug report: "for file in do/*; do head -n 3 \"$file\"; done" -- a
+# harmless read of each file -- scored WARN with reason "contains
+# something the parser could not resolve", because the shlex-era design
+# treated any control-flow construct as wholly unresolvable rather than
+# looking inside it. The shlex fallback still can't look inside a loop
+# body at all (no grammar), so these are bashlex-only.
+# ---------------------------------------------------------------------------
+
+@requires_bashlex
+def test_harmless_command_in_a_for_loop_is_not_flagged(cwd):
+    # The exact reported case.
+    verdict = tier_of('for file in do/*; do head -n 3 "$file"; done', cwd)
+    assert verdict.tier is Tier.OK
+    assert verdict.rule_ids == ()
+
+
+@requires_bashlex
+def test_destructive_command_in_a_for_loop_body_is_still_caught(cwd):
+    # The loop body must actually be analyzed, not just stop scoring a
+    # false WARN -- a real disaster hiding in a loop body must not go
+    # from "generic unresolved WARN" to "nothing at all".
+    verdict = tier_of("for x in a b c; do rm -rf /; done", cwd)
+    assert verdict.tier is Tier.DENY
+    assert "deny.rm_root" in verdict.rule_ids
+
+
+@requires_bashlex
+def test_glob_loop_deleting_each_match_still_warns(cwd):
+    # "$f" here is a for-loop's own bound variable, not some arbitrary
+    # unknown -- but it's drawn from a glob ("*"), so what it resolves to
+    # each iteration is still genuinely unknown. Must not be exempted.
+    verdict = tier_of('for f in *; do rm -rf "$f"; done', cwd)
+    assert verdict.tier is Tier.WARN
+    assert "warn.unresolved" in verdict.rule_ids
+
+
+@requires_bashlex
+def test_command_in_a_subshell_is_analyzed(cwd):
+    verdict = tier_of("(rm -rf /)", cwd)
+    assert verdict.tier is Tier.DENY
+
+
+@requires_bashlex
+def test_command_in_a_brace_group_is_analyzed(cwd):
+    verdict = tier_of("{ rm -rf /; }", cwd)
+    assert verdict.tier is Tier.DENY
