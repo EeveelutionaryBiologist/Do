@@ -15,12 +15,13 @@ def current_shell_name() -> str:
     return os.path.basename(os.environ.get("SHELL") or "/bin/sh")
 
 
-def build_payload(message: str) -> dict:
+def build_payload(message: str, use_cache: bool = True) -> dict:
     return {
         "op": "translate",
         "prompt": message,
         "cwd": os.getcwd(),
         "shell": current_shell_name(),
+        "use_cache": use_cache,
     }
 
 def build_analyze_payload(command: str) -> dict:

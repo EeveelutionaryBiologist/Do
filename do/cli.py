@@ -240,7 +240,7 @@ def main(argv=None) -> int:
         else:
             return EXIT_OK
     else:
-        payload = build_payload(args.message)
+        payload = build_payload(args.message, use_cache=not args.no_cache)
 
     try:
         response = call(config, payload)
