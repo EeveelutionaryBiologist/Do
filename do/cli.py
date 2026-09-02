@@ -234,7 +234,11 @@ def main(argv=None) -> int:
                        if args.export_corpus else config.data_dir / "corpus.jsonl")
         payload = {"op": "export", "path": str(export_path)}
     elif args.forget:
-        confirmation = input("Delete cache? [y/n]")
+        try:
+            confirmation = input("Delete cache? [y/n]")
+        except (EOFError, KeyboardInterrupt):
+            print("\nNot confirmed; cache left untouched.", file=sys.stderr)
+            return EXIT_CANCELLED
         if confirmation in ["Y", "y"]:
             payload = {"op": "delete"}
         else:

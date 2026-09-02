@@ -63,7 +63,7 @@ def edit_command(command: str) -> str:
     readline.set_pre_input_hook(_prefill)
     try:
         edited_cmd = input()
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, EOFError):
         print("\nInterrupted.", file=sys.stderr)
         sys.exit(EXIT_INTERRUPTED)
     finally:
