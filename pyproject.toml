@@ -5,7 +5,7 @@ description = "Natural language to shell commands - bsh, zsh, fish"
 requires-python = ">=3.11"
 License = "MIT"
 
-
+# Sparse, as the main translation process runs over a background daemon.
 dependencies = [
     "gnureadline>=8.3.3 ; sys_platform != 'win32'",
 ]
