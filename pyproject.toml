@@ -1,7 +1,7 @@
 [project]
 name = "do-shell"
 version = "0.8.0"
-description = "Natural language to shell commands -- translates verbatim, never advises"
+description = "Natural language to shell commands - bsh, zsh, fish"
 requires-python = ">=3.11"
 License = "MIT"
 
