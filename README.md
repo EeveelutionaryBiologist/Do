@@ -11,10 +11,6 @@ While other capable language-to-shell translators undeniably exist, Do explicitl
 - auto-classification of commands by destructiveness, warnings and blast radius estimate
 - background caching - the model won't run twice for the same query
 
-## Background Model 
-
-By default, the tool deploys Qwen2.5-Coder-1.5B-Instruct in a background daemon via llama-cpp - no input needed. This can be swapped out in the config, if one so wishes (Qwen2.5-Coder-0.5B-Instruct being an obvious alternative). The model will use GPU-acceleration if available and not deactivated, furthermore models will be unloaded after a set period to free resources. 
-
 A specialized model fine-tuned on a diverse collection of verified bash, fish and zsh commands is currently in the works and will be served soon.
 
 ## Installation
@@ -48,6 +44,10 @@ Do "List all files in this directory"
 ```
 
 The first command of each session may take a moment, as the model has to be loaded to memory.
+
+## Background Model 
+
+By default, the tool deploys Qwen2.5-Coder-1.5B-Instruct in a background daemon via llama-cpp - no input needed. This can be swapped out in the config, if one so wishes (Qwen2.5-Coder-0.5B-Instruct being an obvious alternative). The model will use GPU-acceleration if available and not deactivated, furthermore models will be unloaded after a set period to free resources. 
 
 
 ## Configuration
