@@ -43,7 +43,7 @@ def call(config: Config, payload: dict, timeout: float = 65.0) -> dict:
         except (FileNotFoundError, ConnectionRefusedError) as exc:
             raise ConnectionError(
                 f"dod is not running (no daemon at {socket_path}). "
-                f"Start it with `dod --foreground`."
+                f"Run `Do --setup`, or start it yourself with `dod`."
             ) from exc
 
         sock.sendall(encode(payload))

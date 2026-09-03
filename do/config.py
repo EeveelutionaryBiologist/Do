@@ -50,7 +50,7 @@ def performance_cores(count: int) -> list[int]:
 
 @dataclass
 class Config:
-    model_dir: Path = field(default_factory=lambda: Path(__file__).resolve().parent.parent / "models")
+    model_dir: Path = field(default_factory=lambda: _xdg("XDG_DATA_HOME", ".local/share") / "do" / "models")
     model_file: str = DEFAULT_MODEL_FILE
     repo_id: str = DEFAULT_REPO
 
@@ -83,6 +83,11 @@ class Config:
         return self.data_dir / "do.db"
 
     @property
+    def bin_dir(self) -> Path:
+        """Where `Do --setup` puts a llama-server it had to fetch itself."""
+        return self.data_dir / "bin"
+
+    @property
     def runtime_dir(self) -> Path:
         runtime = os.environ.get("XDG_RUNTIME_DIR")
         return Path(runtime) if runtime else Path("/tmp")
@@ -101,8 +106,7 @@ class Config:
     def download_hint(self) -> str:
         """Fixes a missing model. Shown verbatim in the
         error, because 'model not found' without the remedy is a bug report."""
-        return (f"hf download {self.repo_id} {self.model_file} "
-                f"--local-dir {self.model_dir}")
+        return "run `Do --setup`"
 
 
 def load(path: Path = None) -> Config:

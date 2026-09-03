@@ -10,6 +10,7 @@ from do.safety import Tier
 from do.render import color_response, supports_color, denial, blast_line, render_yellow
 from do.interaction import edit_command, prompt_for_action
 from do.execution import execute
+from do.setup import run as run_setup
 
 
 STATE_ONLY_HEADS = frozenset({"cd", "export", "source", "alias", "umask"})
@@ -28,6 +29,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog='Do')
     parser.add_argument('message', default="", nargs='?')
     parser.add_argument('--status', action='store_true')
+    parser.add_argument('--setup', action='store_true',
+                        help="fetch llama-server and the model, then install "
+                             "and start the dod user service")
     parser.add_argument('--dry-run', action='store_true')
     parser.add_argument('--no-cache', action='store_true')
     parser.add_argument('--forget', action='store_true')
@@ -222,6 +226,9 @@ def main(argv=None) -> int:
         return EXIT_OK
 
     config = Config()
+
+    if args.setup:
+        return run_setup(config)
 
     export_path = None
 

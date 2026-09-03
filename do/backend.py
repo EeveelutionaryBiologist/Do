@@ -24,6 +24,17 @@ _GPU_OFFLOAD_ARG = "all"
 _GPU_CPU_ONLY_ARG = "0"
 
 
+def _resolve_binary(config) -> str | None:
+    """PATH first, then whatever `Do --setup` installed under bin_dir."""
+    found = shutil.which(config.server_binary)
+    if found:
+        return found
+    managed = config.bin_dir / config.server_binary
+    if managed.is_file() and os.access(managed, os.X_OK):
+        return str(managed)
+    return None
+
+
 def _parse_list_devices(stdout: str) -> bool:
     """True if `llama-server --list-devices` reported at least one device."""
     lines = [ln.strip() for ln in stdout.splitlines() if ln.strip()]
@@ -143,13 +154,11 @@ class LlamaServer:
         return self._gpu_offload
 
     def _argv(self, port: int) -> list[str]:
-        binary = shutil.which(self.config.server_binary)
+        binary = _resolve_binary(self.config)
         if binary is None:
             raise BackendError(
-                f"{self.config.server_binary} not found on PATH. Install "
-                "llama.cpp -- a prebuilt llama-<version>-bin-ubuntu-x64.zip "
-                "from github.com/ggml-org/llama.cpp/releases is enough; no "
-                "build required.",
+                f"{self.config.server_binary} not found on PATH or in "
+                f"{self.config.bin_dir}. Run `Do --setup` to fetch it.",
                 code="no_backend")
 
         argv = [
