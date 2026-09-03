@@ -8,7 +8,7 @@ Natural Language to linux shell script parser with a rules-based safety layer, c
 
 While other capable language-to-shell translators undeniably exist, Do explicitly supports bash, zsh and fish out of the box (auto-detected from the terminal). Furthermore, it comes with several convenience and security features, most notably: 
 - Generated commands can be edited within the terminal
-- auto-classification of commands by destructiveness, warnings and blast radius estimate
+- deterministic auto-classification of commands by destructiveness, warnings and blast radius estimate
 - background caching - the model won't run twice for the same query
 
 A specialized model fine-tuned on a diverse collection of verified bash, fish and zsh commands is currently in the works and will be served soon.
