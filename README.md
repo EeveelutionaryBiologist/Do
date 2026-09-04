@@ -48,8 +48,20 @@ The first command of each session may take a moment, as the model has to be load
 
 ## Background Model 
 
-By default, the tool deploys Qwen2.5-Coder-1.5B-Instruct in a background daemon via llama-cpp - no input needed. This can be swapped out in the config, if one so wishes (Qwen2.5-Coder-0.5B-Instruct being an obvious alternative). The model will use GPU-acceleration if available and not deactivated, furthermore models will be unloaded after a set period to free resources. 
+By default, the tool deploys Qwen2.5-Coder-1.5B-Instruct in a background daemon via llama-cpp - no input needed. This can be swapped out in the config, if one so wishes (Qwen2.5-Coder-0.5B-Instruct being an obvious, lighter alternative). The model will use GPU-acceleration if available and not deactivated, furthermore models will be unloaded after a set period to free resources. 
 
+
+## Subprocess caveats
+
+Generated shell commands are dispatched to and run through a detached subprocess from the Do process. This is mostly done for practical reasons but also in the name of process isolation, so that a rare malformed command does not take the main process with it. 
+A side effect of this is that directory changes do not stick by default to the main shell - the change happens in the subprocess which then just returns it's exit code while the main process stays where it is. The intended way to circumvent this is by a
+simple shell widget. Run:
+
+```
+Do --init-shell $SHELL | $SHELL
+```
+
+This gives you access to a shortcut (CTRL+G) to directly execute the command in-shell. 
 
 ## Configuration
 
