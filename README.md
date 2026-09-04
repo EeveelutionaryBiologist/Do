@@ -28,6 +28,7 @@ And that should do it. The background service can be started via:
 ```
 dod
 ```
+(Should also be started automatically by the setup) 
 The server status can be checked via 
 
 ```
@@ -40,7 +41,7 @@ Do --status
 When the daemon (dod) is running, you can run in any terminal:
 
 ```
-Do "List all files in this directory"
+Do "list all python files in subdirectories"
 ```
 
 The first command of each session may take a moment, as the model has to be loaded to memory.
